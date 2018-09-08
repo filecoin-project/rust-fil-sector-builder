@@ -1,3 +1,0 @@
-[export]
-# A list of symbols to not include in the generated bindings
-exclude = ["MerkleTree"]

@@ -13,10 +13,10 @@ publish = false
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
-filecoin-proofs = { version = "^0.2", path = "../filecoin-proofs" }
+filecoin-proofs = { version = "^0.2" }
 sector-builder = { version = "^0.1", path = "../sector-builder" }
 ffi-toolkit = { version = "^0.2", path = "../ffi-toolkit" }
-logging-toolkit = { version = "^0.2", path = "../logging-toolkit" }
+logging-toolkit = { version = "^0.2" }
 drop_struct_macro_derive = { version = "^0.2", path = "../drop-struct-macro-derive" }
 slog = "2.4.1"
 failure = "0.1.5"

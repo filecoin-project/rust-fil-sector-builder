@@ -13,7 +13,7 @@ publish = false
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
-filecoin-proofs = { version = "^0.2" }
+filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs" }
 sector-builder = { version = "^0.1", path = "../sector-builder" }
 ffi-toolkit = { version = "^0.2", path = "../ffi-toolkit" }
 logging-toolkit = { version = "^0.2" }

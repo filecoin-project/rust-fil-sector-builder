@@ -1,0 +1,4 @@
+Name: sector_builder_ffi
+Version: @VERSION@
+Description: C bindings for sector-builder-ffi
+Libs: @PRIVATE_LIBS@

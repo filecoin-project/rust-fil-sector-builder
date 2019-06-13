@@ -62,7 +62,9 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
 /// will fit into a sector of the given size.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector(sector_size: u64) -> u64 {
+pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector(
+    sector_size: u64,
+) -> u64 {
     filecoin_proofs_ffi::api::get_max_user_bytes_per_staged_sector(sector_size)
 }
 
@@ -460,27 +462,37 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(ptr: *mut
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(ptr: *mut GeneratePoStResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(
+    ptr: *mut GeneratePoStResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_get_seal_status_response(ptr: *mut GetSealStatusResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_get_seal_status_response(
+    ptr: *mut GetSealStatusResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_get_sealed_sectors_response(ptr: *mut GetSealedSectorsResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_get_sealed_sectors_response(
+    ptr: *mut GetSealedSectorsResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_get_staged_sectors_response(ptr: *mut GetStagedSectorsResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_get_staged_sectors_response(
+    ptr: *mut GetStagedSectorsResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_init_sector_builder_response(ptr: *mut InitSectorBuilderResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_init_sector_builder_response(
+    ptr: *mut InitSectorBuilderResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 

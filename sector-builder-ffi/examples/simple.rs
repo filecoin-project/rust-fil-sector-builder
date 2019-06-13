@@ -107,7 +107,9 @@ unsafe fn create_sector_builder(
         c_staging_dir,
         2,
     );
-    defer!(sector_builder_ffi_destroy_init_sector_builder_response(resp));
+    defer!(sector_builder_ffi_destroy_init_sector_builder_response(
+        resp
+    ));
 
     if (*resp).status_code != 0 {
         panic!("{}", c_str_to_rust_str((*resp).error_msg))

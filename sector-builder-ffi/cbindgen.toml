@@ -1,10 +1,23 @@
+header = """
+/* sector_builder_ffi Header */
+
+#ifdef __cplusplus
+extern "C" {{
+#endif
+"""
+trailer = """
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+"""
+
+include_guard = "SECTOR_BUILDER_FFI_H"
+include_version = true
+language = "C"
+
 [export]
-# A list of symbols to not include in the generated bindings
-exclude = ["MerkleTree"]
+prefix = "sector_builder_ffi_"
 
 [parse]
-# Whether to parse dependent crates and include their types in the generated
-# bindings
 parse_deps = true
-# A white list of crate names that are allowed to be parsed
-include = ["sector_builder", "filecoin_proofs"]
+include = ["sector_builder", "filecoin_proofs_ffi"]

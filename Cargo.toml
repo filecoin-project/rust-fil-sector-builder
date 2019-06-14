@@ -7,3 +7,7 @@ members = [
   "drop-struct-macro-derive",
   "sector-builder-ffi"
 ]
+
+[patch.crates-io]
+filecoin-proofs = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs.git" }
+filecoin-proofs-ffi = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }

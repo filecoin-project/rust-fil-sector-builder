@@ -10,10 +10,12 @@ edition = "2018"
 publish = false
 
 [lib]
-crate-type = ["rlib", "staticlib", "cdylib"]
+# cdylib is required by the FFI example/test
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs" }
+filecoin-proofs-ffi = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
+filecoin-proofs = "^0.2"
 sector-builder = { version = "^0.1", path = "../sector-builder" }
 ffi-toolkit = { version = "^0.2", path = "../ffi-toolkit" }
 logging-toolkit = { version = "^0.2" }

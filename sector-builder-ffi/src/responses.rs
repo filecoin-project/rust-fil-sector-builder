@@ -28,33 +28,6 @@ pub enum FFISealStatus {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// VerifySealResponse
-//////////////////////
-
-#[repr(C)]
-#[derive(DropStructMacro)]
-pub struct VerifySealResponse {
-    pub status_code: FCPResponseStatus,
-    pub error_msg: *const libc::c_char,
-    pub is_valid: bool,
-}
-
-impl Default for VerifySealResponse {
-    fn default() -> VerifySealResponse {
-        VerifySealResponse {
-            status_code: FCPResponseStatus::FCPNoError,
-            error_msg: ptr::null(),
-            is_valid: false,
-        }
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_verify_seal_response(ptr: *mut VerifySealResponse) {
-    let _ = Box::from_raw(ptr);
-}
-
-///////////////////////////////////////////////////////////////////////////////
 /// GeneratePoSTResult
 //////////////////////
 
@@ -82,38 +55,6 @@ impl Default for GeneratePoStResponse {
             proof_partitions: 0,
         }
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_generate_post_response(ptr: *mut GeneratePoStResponse) {
-    let _ = Box::from_raw(ptr);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// VerifyPoSTResult
-////////////////////
-
-#[repr(C)]
-#[derive(DropStructMacro)]
-pub struct VerifyPoSTResponse {
-    pub status_code: FCPResponseStatus,
-    pub error_msg: *const libc::c_char,
-    pub is_valid: bool,
-}
-
-impl Default for VerifyPoSTResponse {
-    fn default() -> VerifyPoSTResponse {
-        VerifyPoSTResponse {
-            status_code: FCPResponseStatus::FCPNoError,
-            error_msg: ptr::null(),
-            is_valid: false,
-        }
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_verify_post_response(ptr: *mut VerifyPoSTResponse) {
-    let _ = Box::from_raw(ptr);
 }
 
 // err_code_and_msg accepts an Error struct and produces a tuple of response
@@ -166,11 +107,6 @@ impl Default for InitSectorBuilderResponse {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn destroy_init_sector_builder_response(ptr: *mut InitSectorBuilderResponse) {
-    let _ = Box::from_raw(ptr);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 /// AddPieceResponse
 ////////////////////
@@ -191,11 +127,6 @@ impl Default for AddPieceResponse {
             sector_id: 0,
         }
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_add_piece_response(ptr: *mut AddPieceResponse) {
-    let _ = Box::from_raw(ptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -222,13 +153,6 @@ impl Default for ReadPieceFromSealedSectorResponse {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn destroy_read_piece_from_sealed_sector_response(
-    ptr: *mut ReadPieceFromSealedSectorResponse,
-) {
-    let _ = Box::from_raw(ptr);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 /// SealAllStagedSectorsResponse
 ////////////////////////////////
@@ -247,13 +171,6 @@ impl Default for SealAllStagedSectorsResponse {
             error_msg: ptr::null(),
         }
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_seal_all_staged_sectors_response(
-    ptr: *mut SealAllStagedSectorsResponse,
-) {
-    let _ = Box::from_raw(ptr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -308,11 +225,6 @@ impl Default for GetSealStatusResponse {
             sector_id: 0,
         }
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_get_seal_status_response(ptr: *mut GetSealStatusResponse) {
-    let _ = Box::from_raw(ptr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -377,11 +289,6 @@ impl Default for GetSealedSectorsResponse {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn destroy_get_sealed_sectors_response(ptr: *mut GetSealedSectorsResponse) {
-    let _ = Box::from_raw(ptr);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 /// GetStagedSectorsResponse
 ////////////////////////////
@@ -405,9 +312,4 @@ impl Default for GetStagedSectorsResponse {
             sectors_ptr: ptr::null(),
         }
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn destroy_get_staged_sectors_response(ptr: *mut GetStagedSectorsResponse) {
-    let _ = Box::from_raw(ptr);
 }

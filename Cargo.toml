@@ -9,5 +9,5 @@ members = [
 ]
 
 [patch.crates-io]
-filecoin-proofs = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs.git" }
-filecoin-proofs-ffi = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
+filecoin-proofs = { rev = "07de4ef9eac5400335229678c0cc01ab8d967273", git = "https://github.com/filecoin-project/rust-fil-proofs.git" }
+filecoin-proofs-ffi = { rev = "f8a2be56093e9fb73b0fb6336224308985c3f1a1", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }

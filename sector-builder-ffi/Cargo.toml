@@ -14,7 +14,7 @@ publish = false
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-filecoin-proofs-ffi = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
+filecoin-proofs-ffi = { git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
 filecoin-proofs = "^0.2"
 sector-builder = { version = "^0.1", path = "../sector-builder" }
 ffi-toolkit = { version = "^0.2", path = "../ffi-toolkit" }

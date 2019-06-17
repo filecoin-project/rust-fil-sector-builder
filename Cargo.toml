@@ -2,8 +2,6 @@
 
 members = [
   "sector-builder",
-  "ffi-toolkit",
   "fil-proofs-tooling",
-  "drop-struct-macro-derive",
   "sector-builder-ffi"
 ]

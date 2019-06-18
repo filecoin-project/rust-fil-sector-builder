@@ -14,12 +14,13 @@ publish = false
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-filecoin-proofs-ffi = { branch = "master", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
-filecoin-proofs = "^0.2"
+drop_struct_macro_derive = { rev = "c9c9d55a0810a017b0e18fddf5593e84b366daad", git = "https://github.com/filecoin-project/rust-fil-ffi-toolkit.git" }
+ffi-toolkit = { rev = "c9c9d55a0810a017b0e18fddf5593e84b366daad", git = "https://github.com/filecoin-project/rust-fil-ffi-toolkit.git" }
+filecoin-proofs = { rev = "07de4ef9eac5400335229678c0cc01ab8d967273", git = "https://github.com/filecoin-project/rust-fil-proofs.git" }
+filecoin-proofs-ffi = { rev = "9e764cad9e25cb3667fcc204d2f0c0dc36e8f8f1", git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git" }
+logging-toolkit = "^0.2"
 sector-builder = { version = "^0.1", path = "../sector-builder" }
-ffi-toolkit = { version = "^0.2", path = "../ffi-toolkit" }
-logging-toolkit = { version = "^0.2" }
-drop_struct_macro_derive = { version = "^0.2", path = "../drop-struct-macro-derive" }
+
 slog = "2.4.1"
 failure = "0.1.5"
 libc = "0.2.58"

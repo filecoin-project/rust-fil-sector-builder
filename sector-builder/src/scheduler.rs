@@ -9,8 +9,8 @@ use filecoin_proofs::post_adapter::*;
 use crate::builder::{SectorId, WrappedKeyValueStore};
 use crate::error::{err_piecenotfound, err_unrecov, Result};
 use crate::helpers::{
-    add_piece, get_seal_status, get_sectors_ready_for_sealing, load_snapshot, make_snapshot,
-    persist_snapshot, SnapshotKey,
+    add_piece, get_seal_status, get_sectors_ready_for_sealing, load_snapshot, persist_snapshot,
+    SnapshotKey,
 };
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
@@ -67,7 +67,7 @@ impl Scheduler {
             // reconstitute this state from persisted metadata. If not, we
             // create it from scratch.
             let state = {
-                let loaded = load_snapshot(&kv_store, SnapshotKey::new(prover_id, sector_size))
+                let loaded = load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 
@@ -333,11 +333,10 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
     // Create and persist metadata snapshot.
     fn checkpoint(&self) -> Result<()> {
-        let snapshot = make_snapshot(&self.state.staged, &self.state.sealed);
         persist_snapshot(
             &self.kv_store,
-            SnapshotKey::new(self.prover_id, self.sector_size),
-            &snapshot,
+            &SnapshotKey::new(self.prover_id, self.sector_size),
+            &self.state,
         )?;
 
         Ok(())

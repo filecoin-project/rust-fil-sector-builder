@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::path::PathBuf;
 
 fn main() {
@@ -6,11 +7,11 @@ fn main() {
 
     let out_path = env::var("OUT_DIR").unwrap();
     let mfs_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let hdr_path = "include/sector_builder_ffi.h";
+    let hdr_path = Path::new(&out_path).join("include/sector_builder_ffi.h");
 
     cbindgen::generate(mfs_path.clone())
         .expect("Could not generate header")
-        .write_to_file(hdr_path);
+        .write_to_file(hdr_path.clone());
 
     let b = bindgen::builder()
         .header(PathBuf::from(mfs_path).join(hdr_path).to_string_lossy())

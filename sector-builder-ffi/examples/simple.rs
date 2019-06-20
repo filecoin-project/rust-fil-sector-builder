@@ -367,6 +367,46 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         assert_eq!(1, (*resp).sectors_len);
     }
 
+    // verify pips
+    {
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        let mut comm_d = sealed_sector_metadata.comm_d.clone();
+
+        let pieces = from_raw_parts(
+            sealed_sector_metadata.pieces_ptr,
+            sealed_sector_metadata.pieces_len,
+        );
+
+        for piece in pieces {
+            let mut comm_p = piece.comm_p.clone();
+
+            let resp = sector_builder_ffi_verify_piece_inclusion_proof(
+                &mut comm_d,
+                &mut comm_p,
+                piece.piece_inclusion_proof_ptr,
+                piece.piece_inclusion_proof_len,
+                piece.num_bytes,
+                sizes.sector_class.sector_size,
+            );
+            defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
+
+            if (*resp).status_code != 0 {
+                panic!("{}", c_str_to_rust_str((*resp).error_msg));
+            }
+
+            assert!((*resp).is_valid);
+        }
+    }
+
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
         let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
@@ -417,7 +457,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
     // after sealing, read the bytes (causes unseal) and compare with what we
     // added to the sector
     {
-        let c_piece_key = rust_str_to_c_str(piece_key);
+        let c_piece_key = rust_str_to_c_str(piece_key.clone());
         defer!(free_c_str(c_piece_key));
 
         let resp = sector_builder_ffi_read_piece_from_sealed_sector(sector_builder_b, c_piece_key);
@@ -433,7 +473,45 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         bytes_out.set_len(data_len);
         ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
 
-        assert_eq!(format!("{:x?}", bytes_in), format!("{:x?}", bytes_out))
+        assert_eq!(format!("{:x?}", bytes_in), format!("{:x?}", bytes_out));
+    }
+
+    {
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        let pieces = from_raw_parts(
+            sealed_sector_metadata.pieces_ptr,
+            sealed_sector_metadata.pieces_len,
+        );
+
+        let piece = pieces
+            .into_iter()
+            .find(|&piece| {
+                let pk = c_str_to_rust_str(piece.piece_key).to_string();
+                &pk == &piece_key
+            })
+            .expects("could not find piece with matching key");
+
+        let comm_p = piece.comm_p.clone();
+
+        let mut file = NamedTempFile::new().expects("could not create named temp file");
+        let p = file.path().to_string_lossy().to_string();
+        let _ = file.write_all(&bytes_in);
+        let c_piece_path = rust_str_to_c_str(p);
+        defer!(free_c_str(c_piece_path));
+
+        let resp = sector_builder_ffi_generate_piece_commitment(c_piece_path);
+        defer!(sector_builder_ffi_destroy_generate_piece_commitment_response(resp));
+
+        assert_eq!(format!("{:x?}", comm_p), format!("{:x?}", (*resp).comm_p))
     }
 
     Ok(())

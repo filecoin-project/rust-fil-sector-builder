@@ -154,6 +154,7 @@ mod tests {
             &sealed_access,
             &prover_id,
             &sector_id,
+            &[],
         )
         .expect("failed to seal");
 
@@ -162,6 +163,8 @@ mod tests {
             comm_d,
             comm_r_star,
             proof,
+            comm_ps,
+            piece_inclusion_proofs,
         } = seal_output.clone();
 
         // valid commitments

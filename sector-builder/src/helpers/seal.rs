@@ -23,11 +23,8 @@ pub fn seal(
     // Run the FPS seal operation. This call will block for a long time, so make
     // sure you're not holding any locks.
 
-    let piece_lengths: Vec<u64> = staged_sector
-        .pieces
-        .iter()
-        .map(|p| u64::from(p.num_bytes))
-        .collect();
+    let piece_lengths: Vec<UnpaddedBytesAmount> =
+        staged_sector.pieces.iter().map(|p| p.num_bytes).collect();
 
     let SealOutput {
         comm_r,

@@ -60,7 +60,7 @@ fn retrieve_piece_aux<'a>(
             err_unrecov(msg)
         })?;
 
-    let pieces: Vec<_> = sealed_sector
+    let piece_lengths: Vec<_> = sealed_sector
         .pieces
         .iter()
         .take_while(|p| p.piece_key != piece_key)
@@ -73,7 +73,7 @@ fn retrieve_piece_aux<'a>(
         &PathBuf::from(staging_sector_access),
         prover_id,
         &sector_id_as_bytes(sealed_sector.sector_id)?,
-        get_piece_start_byte(&pieces, piece.num_bytes),
+        get_piece_start_byte(&piece_lengths, piece.num_bytes),
         piece.num_bytes,
     )?;
 

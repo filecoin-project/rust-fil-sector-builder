@@ -41,10 +41,10 @@ pub fn add_piece(
         .or_else(|_| provision_new_staged_sector(sector_mgr, &mut staged_state))?;
 
     if let Some(s) = staged_state.sectors.get_mut(&dest_sector_id) {
-        let pieces: Vec<_> = s.pieces.iter().map(|p| p.num_bytes).collect();
+        let piece_lengths: Vec<_> = s.pieces.iter().map(|p| p.num_bytes).collect();
 
         let (expected_num_bytes_written, mut chain) =
-            get_aligned_source(File::open(piece_path)?, &pieces, piece_bytes_len);
+            get_aligned_source(File::open(piece_path)?, &piece_lengths, piece_bytes_len);
 
         sector_store
             .manager()
@@ -91,8 +91,9 @@ fn compute_destination_sector_id(
         Ok(vector
             .iter()
             .find(move |staged_sector| {
-                let pieces: Vec<_> = staged_sector.pieces.iter().map(|p| p.num_bytes).collect();
-                let preceding_piece_bytes = sum_piece_bytes_with_alignment(&pieces);
+                let piece_lengths: Vec<_> =
+                    staged_sector.pieces.iter().map(|p| p.num_bytes).collect();
+                let preceding_piece_bytes = sum_piece_bytes_with_alignment(&piece_lengths);
                 let PieceAlignment {
                     left_bytes,
                     right_bytes,

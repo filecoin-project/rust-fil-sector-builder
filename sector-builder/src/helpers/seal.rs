@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use filecoin_proofs::{seal as seal_internal, SealOutput};
 use filecoin_proofs::types::UnpaddedBytesAmount;
+use filecoin_proofs::{seal as seal_internal, SealOutput};
 
 use crate::error;
 use crate::metadata::{

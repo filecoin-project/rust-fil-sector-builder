@@ -554,7 +554,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_piece_inclusion_proof
 ) {
     filecoin_proofs_ffi::api::destroy_verify_piece_inclusion_proof_response(ptr)
 }
-///
+
 /// Deallocates a GeneratePieceCommitmentResponse.
 ///
 #[no_mangle]

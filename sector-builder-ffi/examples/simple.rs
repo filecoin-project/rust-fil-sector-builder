@@ -508,7 +508,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
         let c_piece_path = rust_str_to_c_str(p);
         defer!(free_c_str(c_piece_path));
 
-        let resp = sector_builder_ffi_generate_piece_commitment(c_piece_path);
+        let resp = sector_builder_ffi_generate_piece_commitment(c_piece_path, piece.num_bytes);
         defer!(sector_builder_ffi_destroy_generate_piece_commitment_response(resp));
 
         assert_eq!(format!("{:x?}", comm_p), format!("{:x?}", (*resp).comm_p))

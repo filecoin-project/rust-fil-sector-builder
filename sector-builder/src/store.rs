@@ -163,8 +163,8 @@ mod tests {
             comm_d,
             comm_r_star,
             proof,
-            comm_ps,
-            piece_inclusion_proofs,
+            comm_ps: _,
+            piece_inclusion_proofs: _,
         } = seal_output.clone();
 
         // valid commitments

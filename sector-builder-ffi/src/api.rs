@@ -84,6 +84,7 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
     )
 }
 
+/// Returns the merkle root for a piece and its size after piece padding and alignment.
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
     piece_path: *const libc::c_char,

@@ -605,7 +605,7 @@ pub fn from_ffi_sector_class(fsc: FFISectorClass) -> filecoin_proofs::SectorClas
     }
 }
 
-pub fn into_ffi_piece_metadata(piece_metadata: &PieceMetadata) -> FFIPieceMetadata {
+fn into_ffi_piece_metadata(piece_metadata: &PieceMetadata) -> FFIPieceMetadata {
     let (len, ptr) = match &piece_metadata.piece_inclusion_proof {
         Some(proof) => {
             let buf = proof.clone();

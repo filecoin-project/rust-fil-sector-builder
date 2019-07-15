@@ -376,6 +376,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error
             panic!("{}", c_str_to_rust_str((*resp).error_msg))
         }
 
+        assert_eq!((*resp).sectors_len, 1);
+
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
             from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 

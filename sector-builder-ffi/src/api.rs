@@ -7,13 +7,10 @@ use slog::*;
 
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
-use sector_builder::{SealStatus, SectorBuilder};
+use sector_builder::{PieceMetadata, SealStatus, SectorBuilder};
 
 use crate::responses::{
-    self, err_code_and_msg, AddPieceResponse, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
-    GeneratePoStResponse, GetSealStatusResponse, GetSealedSectorsResponse,
-    GetStagedSectorsResponse, InitSectorBuilderResponse, ReadPieceFromSealedSectorResponse,
-    SealAllStagedSectorsResponse,
+    self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
 };
 use crate::singletons::FCP_LOG;
 
@@ -68,6 +65,34 @@ pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector
     filecoin_proofs_ffi::api::get_max_user_bytes_per_staged_sector(sector_size)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
+    comm_d: &[u8; 32],
+    comm_p: &[u8; 32],
+    piece_inclusion_proof_ptr: *const u8,
+    piece_inclusion_proof_len: libc::size_t,
+    padded_piece_size: u64,
+    sector_size: u64,
+) -> *mut filecoin_proofs_ffi::responses::VerifyPieceInclusionProofResponse {
+    filecoin_proofs_ffi::api::verify_piece_inclusion_proof(
+        comm_d,
+        comm_p,
+        piece_inclusion_proof_ptr,
+        piece_inclusion_proof_len,
+        padded_piece_size,
+        sector_size,
+    )
+}
+
+/// Returns the merkle root for a piece after piece padding and alignment.
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
+    piece_path: *const libc::c_char,
+    unpadded_piece_size: u64,
+) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
+    filecoin_proofs_ffi::api::generate_piece_commitment(piece_path, unpadded_piece_size)
+}
+
 /// Returns sector sealing status for the provided sector id if it exists. If
 /// we don't know about the provided sector id, produce an error.
 ///
@@ -89,10 +114,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                     let pieces = meta
                         .pieces
                         .iter()
-                        .map(|p| FFIPieceMetadata {
-                            piece_key: rust_str_to_c_str(p.piece_key.to_string()),
-                            num_bytes: p.num_bytes.into(),
-                        })
+                        .map(into_ffi_piece_metadata)
                         .collect::<Vec<FFIPieceMetadata>>();
 
                     response.comm_d = meta.comm_d;
@@ -147,10 +169,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                     let pieces = meta
                         .pieces
                         .iter()
-                        .map(|p| FFIPieceMetadata {
-                            piece_key: rust_str_to_c_str(p.piece_key.to_string()),
-                            num_bytes: p.num_bytes.into(),
-                        })
+                        .map(into_ffi_piece_metadata)
                         .collect::<Vec<FFIPieceMetadata>>();
 
                     let snark_proof = meta.proof.clone();
@@ -205,10 +224,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
                     let pieces = meta
                         .pieces
                         .iter()
-                        .map(|p| FFIPieceMetadata {
-                            piece_key: rust_str_to_c_str(p.piece_key.to_string()),
-                            num_bytes: p.num_bytes.into(),
-                        })
+                        .map(into_ffi_piece_metadata)
                         .collect::<Vec<FFIPieceMetadata>>();
 
                     let mut sector = responses::FFIStagedSectorMetadata {
@@ -457,55 +473,57 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
 //////////////
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(ptr: *mut AddPieceResponse) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(
+    ptr: *mut responses::AddPieceResponse,
+) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(
-    ptr: *mut GeneratePoStResponse,
+    ptr: *mut responses::GeneratePoStResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_seal_status_response(
-    ptr: *mut GetSealStatusResponse,
+    ptr: *mut responses::GetSealStatusResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_sealed_sectors_response(
-    ptr: *mut GetSealedSectorsResponse,
+    ptr: *mut responses::GetSealedSectorsResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_staged_sectors_response(
-    ptr: *mut GetStagedSectorsResponse,
+    ptr: *mut responses::GetStagedSectorsResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_init_sector_builder_response(
-    ptr: *mut InitSectorBuilderResponse,
+    ptr: *mut responses::InitSectorBuilderResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(
-    ptr: *mut ReadPieceFromSealedSectorResponse,
+    ptr: *mut responses::ReadPieceFromSealedSectorResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_all_staged_sectors_response(
-    ptr: *mut SealAllStagedSectorsResponse,
+    ptr: *mut responses::SealAllStagedSectorsResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
@@ -526,6 +544,24 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_post_response(
     ptr: *mut filecoin_proofs_ffi::responses::VerifyPoStResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_verify_post_response(ptr)
+}
+
+/// Deallocates a VerifyPieceInclusionProofResponse.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(
+    ptr: *mut filecoin_proofs_ffi::responses::VerifyPieceInclusionProofResponse,
+) {
+    filecoin_proofs_ffi::api::destroy_verify_piece_inclusion_proof_response(ptr)
+}
+
+/// Deallocates a GeneratePieceCommitmentResponse.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_response(
+    ptr: *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse,
+) {
+    filecoin_proofs_ffi::api::destroy_generate_piece_commitment_response(ptr)
 }
 
 /// Destroys a SectorBuilder.
@@ -566,5 +602,29 @@ pub fn from_ffi_sector_class(fsc: FFISectorClass) -> filecoin_proofs::SectorClas
             filecoin_proofs::PoRepProofPartitions(porep_proof_partitions),
             filecoin_proofs::PoStProofPartitions(post_proof_partitions),
         ),
+    }
+}
+
+fn into_ffi_piece_metadata(piece_metadata: &PieceMetadata) -> FFIPieceMetadata {
+    let (len, ptr) = match &piece_metadata.piece_inclusion_proof {
+        Some(proof) => {
+            let buf = proof.clone();
+
+            let len = buf.len();
+            let ptr = buf.as_ptr();
+
+            mem::forget(buf);
+
+            (len, ptr)
+        }
+        None => (0, ptr::null()),
+    };
+
+    FFIPieceMetadata {
+        piece_key: rust_str_to_c_str(piece_metadata.piece_key.to_string()),
+        num_bytes: piece_metadata.num_bytes.into(),
+        comm_p: piece_metadata.comm_p.unwrap_or([0; 32]),
+        piece_inclusion_proof_len: len,
+        piece_inclusion_proof_ptr: ptr,
     }
 }

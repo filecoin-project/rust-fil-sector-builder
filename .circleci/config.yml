@@ -25,7 +25,8 @@ jobs:
       - run:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
-            cargo install filecoin-proofs --git https://github.com/filecoin-project/rust-fil-proofs
+            cargo install filecoin-proofs --git https://github.com/filecoin-project/rust-fil-proofs || true
+            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
             paramcache --test-only
       - persist_to_workspace:
           root: "."

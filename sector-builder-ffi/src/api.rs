@@ -3,7 +3,6 @@ use std::ptr;
 use std::slice::from_raw_parts;
 
 use libc;
-use slog::*;
 
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
@@ -12,7 +11,6 @@ use sector_builder::{PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
 };
-use crate::singletons::FCP_LOG;
 
 #[repr(C)]
 pub struct FFISectorClass {
@@ -284,7 +282,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
 ) -> *mut responses::GeneratePoStResponse {
-    info!(FCP_LOG, "generate_post: {}", "start"; "target" => "FFI");
+    info!("generate_post: {}", "start");
 
     let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
 
@@ -324,7 +322,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
         }
     }
 
-    info!(FCP_LOG, "generate_post: {}", "finish"; "target" => "FFI");
+    info!("generate_post: {}", "finish");
 
     raw_ptr(response)
 }

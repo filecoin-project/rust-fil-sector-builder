@@ -2,10 +2,10 @@ use std::mem;
 use std::ptr;
 use std::slice::from_raw_parts;
 
-use libc;
-
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
+use libc;
+use once_cell::sync::OnceCell;
 use sector_builder::{PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder};
 
 use crate::responses::{
@@ -30,6 +30,8 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     piece_path: *const libc::c_char,
     store_until_utc_secs: u64,
 ) -> *mut responses::AddPieceResponse {
+    init_log();
+
     let piece_key = c_str_to_rust_str(piece_key);
     let piece_path = c_str_to_rust_str(piece_path);
 
@@ -62,6 +64,8 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
 pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector(
     sector_size: u64,
 ) -> u64 {
+    init_log();
+
     filecoin_proofs_ffi::api::get_max_user_bytes_per_staged_sector(sector_size)
 }
 
@@ -74,6 +78,8 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
     padded_piece_size: u64,
     sector_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::VerifyPieceInclusionProofResponse {
+    init_log();
+
     filecoin_proofs_ffi::api::verify_piece_inclusion_proof(
         comm_d,
         comm_p,
@@ -90,6 +96,8 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
     piece_path: *const libc::c_char,
     unpadded_piece_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
+    init_log();
+
     filecoin_proofs_ffi::api::generate_piece_commitment(piece_path, unpadded_piece_size)
 }
 
@@ -101,6 +109,8 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
     ptr: *mut SectorBuilder,
     sector_id: u64,
 ) -> *mut responses::GetSealStatusResponse {
+    init_log();
+
     let mut response: responses::GetSealStatusResponse = Default::default();
 
     match (*ptr).get_seal_status(sector_id) {
@@ -157,6 +167,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
 pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
     ptr: *mut SectorBuilder,
 ) -> *mut responses::GetSealedSectorsResponse {
+    init_log();
     let mut response: responses::GetSealedSectorsResponse = Default::default();
 
     match (*ptr).get_sealed_sectors() {
@@ -212,6 +223,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
 pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
     ptr: *mut SectorBuilder,
 ) -> *mut responses::GetStagedSectorsResponse {
+    init_log();
     let mut response: responses::GetStagedSectorsResponse = Default::default();
 
     match (*ptr).get_staged_sectors() {
@@ -282,6 +294,8 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
 ) -> *mut responses::GeneratePoStResponse {
+    init_log();
+
     info!("generate_post: {}", "start");
 
     let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
@@ -339,6 +353,8 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     staged_sector_dir: *const libc::c_char,
     max_num_staged_sectors: u8,
 ) -> *mut responses::InitSectorBuilderResponse {
+    init_log();
+
     let result = SectorBuilder::init_from_metadata(
         from_ffi_sector_class(sector_class),
         last_used_sector_id,
@@ -373,6 +389,8 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
 ) -> *mut responses::ReadPieceFromSealedSectorResponse {
+    init_log();
+
     let mut response: responses::ReadPieceFromSealedSectorResponse = Default::default();
 
     let piece_key = c_str_to_rust_str(piece_key);
@@ -400,6 +418,8 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
 pub unsafe extern "C" fn sector_builder_ffi_seal_all_staged_sectors(
     ptr: *mut SectorBuilder,
 ) -> *mut responses::SealAllStagedSectorsResponse {
+    init_log();
+
     let mut response: responses::SealAllStagedSectorsResponse = Default::default();
 
     match (*ptr).seal_all_staged_sectors() {
@@ -429,6 +449,8 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     proof_ptr: *const u8,
     proof_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
+    init_log();
+
     filecoin_proofs_ffi::api::verify_seal(
         sector_size,
         comm_r,
@@ -455,6 +477,8 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
     faults_ptr: *const u64,
     faults_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifyPoStResponse {
+    init_log();
+
     filecoin_proofs_ffi::api::verify_post(
         sector_size,
         proof_partitions,
@@ -627,4 +651,15 @@ fn into_ffi_piece_metadata(piece_metadata: &PieceMetadata) -> FFIPieceMetadata {
         piece_inclusion_proof_len: len,
         piece_inclusion_proof_ptr: ptr,
     }
+}
+
+/// Protects the init off the logger.
+static LOG_INIT: OnceCell<bool> = OnceCell::new();
+
+/// Ensures the logger is initialized.
+fn init_log() {
+    LOG_INIT.get_or_init(|| {
+        let _ = pretty_env_logger::try_init_timed();
+        true
+    });
 }

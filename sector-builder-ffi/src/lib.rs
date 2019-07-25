@@ -11,8 +11,3 @@ extern crate log;
 mod responses;
 
 pub mod api;
-
-// Initialize env logger
-lazy_static::lazy_static! {
-    static ref _LOG: () = pretty_env_logger::init();
-}

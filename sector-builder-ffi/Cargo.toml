@@ -16,11 +16,11 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 [dependencies]
 drop_struct_macro_derive = "0.3.0"
 ffi-toolkit = "0.3.0"
-filecoin-proofs = "0.4.0"
-filecoin-proofs-ffi = "0.5.0"
-logging-toolkit = "0.4.0"
+filecoin-proofs = "0.5.0"
+filecoin-proofs-ffi = "0.6.0"
+logging-toolkit = "0.5.0"
 sector-builder = { version = "^0.3", path = "../sector-builder" }
-storage-proofs = "0.4.0"
+storage-proofs = "0.5.0"
 
 slog = "2.4.1"
 failure = "0.1.5"

@@ -1,7 +1,7 @@
 [package]
 name = "sector-builder-ffi"
 description = "FFI Interface for sector-builder"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["laser <l@s3r.com>", "dignfiedquire <dignifiedquire@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/filecoin-project/rust-fil-proofs"

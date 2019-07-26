@@ -1,6 +1,6 @@
 use std::fs::{create_dir_all, remove_file, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use filecoin_proofs::fr32::{
     almost_truncate_to_unpadded_bytes, target_unpadded_bytes, write_padded,
@@ -11,17 +11,29 @@ use crate::error::SectorManagerErr;
 use crate::store::{ProofsConfig, SectorConfig, SectorManager, SectorStore};
 use crate::util;
 
-// These sizes are for SEALED sectors. They are used to calculate the values of setup parameters.
-// They can be overridden by setting the corresponding environment variable (with FILECOIN_PROOFS_ prefix),
-// but this is not recommended, since some sealed sector sizes are invalid. If you must set this manually,
-// ensure the chosen sector size is a multiple of 32.
-
 pub struct DiskManager {
     staging_path: String,
     sealed_path: String,
 }
 
+impl DiskManager {
+    fn sector_path<P: AsRef<Path>>(&self, sector_dir: P, access: &str) -> PathBuf {
+        let mut file_path = PathBuf::from(sector_dir.as_ref());
+        file_path.push(access);
+
+        file_path
+    }
+}
+
 impl SectorManager for DiskManager {
+    fn sealed_sector_path(&self, access: &str) -> PathBuf {
+        self.sector_path(&self.sealed_path, access)
+    }
+
+    fn staged_sector_path(&self, access: &str) -> PathBuf {
+        self.sector_path(&self.staging_path, access)
+    }
+
     fn new_sealed_sector_access(&self) -> Result<String, SectorManagerErr> {
         self.new_sector_access(Path::new(&self.sealed_path))
     }
@@ -33,7 +45,7 @@ impl SectorManager for DiskManager {
     fn num_unsealed_bytes(&self, access: &str) -> Result<u64, SectorManagerErr> {
         OpenOptions::new()
             .read(true)
-            .open(access)
+            .open(self.staged_sector_path(access))
             .map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
             .map(|mut f| {
                 target_unpadded_bytes(&mut f)
@@ -44,7 +56,10 @@ impl SectorManager for DiskManager {
 
     fn truncate_unsealed(&self, access: &str, size: u64) -> Result<(), SectorManagerErr> {
         // I couldn't wrap my head around all ths result mapping, so here it is all laid out.
-        match OpenOptions::new().write(true).open(&access) {
+        match OpenOptions::new()
+            .write(true)
+            .open(self.staged_sector_path(access))
+        {
             Ok(mut file) => match almost_truncate_to_unpadded_bytes(&mut file, size) {
                 Ok(padded_size) => match file.set_len(padded_size as u64) {
                     Ok(_) => Ok(()),
@@ -65,7 +80,7 @@ impl SectorManager for DiskManager {
         OpenOptions::new()
             .read(true)
             .write(true)
-            .open(access)
+            .open(self.staged_sector_path(access))
             .map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
             .and_then(|mut file| {
                 write_padded(data, &mut file)
@@ -75,7 +90,8 @@ impl SectorManager for DiskManager {
     }
 
     fn delete_staging_sector_access(&self, access: &str) -> Result<(), SectorManagerErr> {
-        remove_file(access).map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
+        remove_file(self.staged_sector_path(access))
+            .map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
     }
 
     fn read_raw(
@@ -86,7 +102,7 @@ impl SectorManager for DiskManager {
     ) -> Result<Vec<u8>, SectorManagerErr> {
         OpenOptions::new()
             .read(true)
-            .open(access)
+            .open(self.staged_sector_path(access))
             .map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
             .and_then(|mut file| -> Result<Vec<u8>, SectorManagerErr> {
                 file.seek(SeekFrom::Start(start_offset))
@@ -104,25 +120,17 @@ impl SectorManager for DiskManager {
 
 impl DiskManager {
     fn new_sector_access(&self, root: &Path) -> Result<String, SectorManagerErr> {
-        let pbuf = root.join(util::rand_alpha_string(32));
+        let access = util::rand_alpha_string(32);
+        let file_path = root.join(&access);
 
         create_dir_all(root)
             .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))
             .and_then(|_| {
-                File::create(&pbuf)
+                File::create(&file_path)
                     .map(|_| 0)
                     .map_err(|err| SectorManagerErr::ReceiverError(format!("{:?}", err)))
             })
-            .and_then(|_| {
-                pbuf.to_str().map_or_else(
-                    || {
-                        Err(SectorManagerErr::ReceiverError(
-                            "could not create pbuf".to_string(),
-                        ))
-                    },
-                    |str_ref| Ok(str_ref.to_owned()),
-                )
-            })
+            .map(|_| access)
     }
 }
 

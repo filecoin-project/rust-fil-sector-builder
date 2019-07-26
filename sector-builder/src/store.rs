@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::path::PathBuf;
 
 use filecoin_proofs::types::*;
 
@@ -21,6 +22,12 @@ pub trait ProofsConfig: Sync + Send {
 }
 
 pub trait SectorManager: Sync + Send {
+    /// produce the path to the file associated with sealed sector access-token
+    fn sealed_sector_path(&self, access: &str) -> PathBuf;
+
+    /// produce the path to the file associated with staged sector access-token
+    fn staged_sector_path(&self, access: &str) -> PathBuf;
+
     /// provisions a new sealed sector and reports the corresponding access
     fn new_sealed_sector_access(&self) -> Result<String, SectorManagerErr>;
 
@@ -300,7 +307,11 @@ mod tests {
             let read_unsealed_buf = h
                 .store
                 .manager()
-                .read_raw(&h.unseal_access, 0, UnpaddedBytesAmount(buf.len() as u64))
+                .read_raw(
+                    &h.unseal_access,
+                    0,
+                    UnpaddedBytesAmount(buf.len() as u64),
+                )
                 .expect("failed to read_raw a");
 
             assert_eq!(

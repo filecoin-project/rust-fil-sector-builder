@@ -7,7 +7,7 @@ use slog::*;
 
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
-use sector_builder::{PieceMetadata, SealStatus, SectorBuilder};
+use sector_builder::{PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder};
 
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
@@ -30,6 +30,7 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     piece_key: *const libc::c_char,
     piece_bytes_amount: u64,
     piece_path: *const libc::c_char,
+    store_until_utc_secs: u64,
 ) -> *mut responses::AddPieceResponse {
     let piece_key = c_str_to_rust_str(piece_key);
     let piece_path = c_str_to_rust_str(piece_path);
@@ -40,6 +41,7 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
         String::from(piece_key),
         piece_bytes_amount,
         String::from(piece_path),
+        SecondsSinceEpoch(store_until_utc_secs),
     ) {
         Ok(sector_id) => {
             response.status_code = FCPResponseStatus::FCPNoError;

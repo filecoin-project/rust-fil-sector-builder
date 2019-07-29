@@ -68,7 +68,6 @@ mod tests {
     use super::*;
     use std::fs::{create_dir_all, File};
     use std::io::{Read, Seek, SeekFrom, Write};
-    use std::path::PathBuf;
     use std::thread;
 
     use rand::{thread_rng, Rng};
@@ -306,7 +305,15 @@ mod tests {
     fn seal_unsealed_roundtrip_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {
         let h = create_harness(sector_class, &vec![bytes_amt]);
 
-        let mut file = File::open(&h.unseal_access).unwrap();
+        let unsealed_sector_path = h
+            .store
+            .manager()
+            .staged_sector_path(&h.unseal_access)
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let mut file = File::open(unsealed_sector_path).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
 
@@ -403,8 +410,8 @@ mod tests {
             u64::from(
                 filecoin_proofs::get_unsealed_range(
                     h.store.proofs_config().porep_config(),
-                    sealed_sector_path,
-                    unsealed_sector_path,
+                    &sealed_sector_path,
+                    &unsealed_sector_path,
                     &h.prover_id,
                     &h.sector_id,
                     UnpaddedByteIndex(offset),
@@ -414,7 +421,7 @@ mod tests {
             )
         );
 
-        let mut file = File::open(&h.unseal_access).unwrap();
+        let mut file = File::open(&unsealed_sector_path).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
 

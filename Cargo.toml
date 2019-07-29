@@ -2,6 +2,5 @@
 
 members = [
   "sector-builder",
-  "fil-proofs-tooling",
   "sector-builder-ffi"
 ]

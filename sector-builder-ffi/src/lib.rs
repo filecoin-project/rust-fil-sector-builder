@@ -6,9 +6,8 @@ extern crate filecoin_proofs_ffi;
 extern crate sector_builder;
 
 #[macro_use]
-extern crate lazy_static;
+extern crate log;
 
 mod responses;
-mod singletons;
 
 pub mod api;

@@ -478,7 +478,7 @@ mod tests {
         let _ = filecoin_proofs::get_unsealed_range(
             h.store.proofs_config().porep_config(),
             sealed_sector_path,
-            unsealed_sector_path,
+            unsealed_sector_path.clone(),
             &h.prover_id,
             &h.sector_id,
             UnpaddedByteIndex(0),
@@ -486,7 +486,7 @@ mod tests {
         )
         .expect("failed to unseal");
 
-        let mut file = File::open(&unseal_access).unwrap();
+        let mut file = File::open(&unsealed_sector_path).unwrap();
         let mut buf_from_file = Vec::new();
         file.read_to_end(&mut buf_from_file).unwrap();
 

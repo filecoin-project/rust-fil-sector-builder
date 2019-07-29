@@ -8,7 +8,6 @@ extern crate scopeguard;
 
 include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 
-use std::{env, fs};
 use std::error::Error;
 use std::io::Write;
 use std::ptr;
@@ -17,12 +16,13 @@ use std::sync::atomic::AtomicPtr;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use std::{env, fs};
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use ffi_toolkit::{c_str_to_rust_str, free_c_str, rust_str_to_c_str};
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 use tempfile::{NamedTempFile, TempDir};
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -307,11 +307,7 @@ mod tests {
             let read_unsealed_buf = h
                 .store
                 .manager()
-                .read_raw(
-                    &h.unseal_access,
-                    0,
-                    UnpaddedBytesAmount(buf.len() as u64),
-                )
+                .read_raw(&h.unseal_access, 0, UnpaddedBytesAmount(buf.len() as u64))
                 .expect("failed to read_raw a");
 
             assert_eq!(

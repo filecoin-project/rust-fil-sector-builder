@@ -90,11 +90,10 @@ fn retrieve_piece_aux<'a>(
         return Err(err_unrecov(s).into());
     }
 
-    let piece_bytes = sector_store.manager().read_raw(
-        staged_sector_access,
-        0,
-        num_bytes_unsealed,
-    )?;
+    let piece_bytes =
+        sector_store
+            .manager()
+            .read_raw(staged_sector_access, 0, num_bytes_unsealed)?;
 
     Ok((num_bytes_unsealed, piece_bytes))
 }

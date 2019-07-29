@@ -393,7 +393,7 @@ mod tests {
         let unsealed_sector_path = h
             .store
             .manager()
-            .sealed_sector_path(&h.unseal_access)
+            .staged_sector_path(&h.unseal_access)
             .to_str()
             .unwrap()
             .to_string();
@@ -452,10 +452,26 @@ mod tests {
             .new_sealed_sector_access()
             .expect("could not create unseal access");
 
+        let unsealed_sector_path = h
+            .store
+            .manager()
+            .staged_sector_path(&unseal_access)
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let sealed_sector_path = h
+            .store
+            .manager()
+            .sealed_sector_path(&h.sealed_access)
+            .to_str()
+            .unwrap()
+            .to_string();
+
         let _ = filecoin_proofs::get_unsealed_range(
             h.store.proofs_config().porep_config(),
-            &h.sealed_access,
-            &unseal_access,
+            sealed_sector_path,
+            unsealed_sector_path,
             &h.prover_id,
             &h.sector_id,
             UnpaddedByteIndex(0),

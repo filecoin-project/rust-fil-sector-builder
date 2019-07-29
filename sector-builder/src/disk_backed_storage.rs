@@ -237,8 +237,8 @@ pub mod tests {
         )
     }
 
-    fn read_all_bytes(access: &str) -> Vec<u8> {
-        let mut file = File::open(access).unwrap();
+    fn read_all_bytes<P: AsRef<Path>>(path: P) -> Vec<u8> {
+        let mut file = File::open(path.as_ref()).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
 
@@ -306,7 +306,7 @@ pub mod tests {
                 .expect("failed to write");
 
             // buffer the file's bytes into memory after writing bytes
-            let buf = read_all_bytes(&access);
+            let buf = read_all_bytes(mgr.staged_sector_path(&access));
             let output_bytes_written = buf.len();
 
             // ensure that we reported the correct number of written bytes
@@ -317,7 +317,7 @@ pub mod tests {
             assert_eq!(8u8, buf[32]);
 
             // read the file into memory again - this time after we truncate
-            let buf = read_all_bytes(&access);
+            let buf = read_all_bytes(mgr.staged_sector_path(&access));
 
             // ensure the file we wrote to contains the expected bytes
             assert_eq!(504, buf.len());
@@ -343,7 +343,7 @@ pub mod tests {
                     .expect("failed to truncate");
 
                 // read the file into memory again - this time after we truncate
-                let buf = read_all_bytes(&access);
+                let buf = read_all_bytes(mgr.staged_sector_path(&access));
 
                 // All but last bytes are identical.
                 assert_eq!(contents[0..num_bytes], buf[0..num_bytes]);

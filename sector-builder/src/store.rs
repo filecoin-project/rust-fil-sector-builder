@@ -382,13 +382,29 @@ mod tests {
         let offset = 5;
         let range_length = h.written_contents[0].len() as u64 - offset;
 
+        let sealed_sector_path = h
+            .store
+            .manager()
+            .sealed_sector_path(&h.sealed_access)
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let unsealed_sector_path = h
+            .store
+            .manager()
+            .sealed_sector_path(&h.unseal_access)
+            .to_str()
+            .unwrap()
+            .to_string();
+
         assert_eq!(
             range_length,
             u64::from(
                 filecoin_proofs::get_unsealed_range(
                     h.store.proofs_config().porep_config(),
-                    &PathBuf::from(&h.sealed_access),
-                    &PathBuf::from(&h.unseal_access),
+                    sealed_sector_path,
+                    unsealed_sector_path,
                     &h.prover_id,
                     &h.sector_id,
                     UnpaddedByteIndex(offset),

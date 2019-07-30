@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
-use filecoin_proofs::post_adapter::*;
 use filecoin_proofs::types::{PaddedBytesAmount, PoRepConfig, PoStConfig, SectorClass};
+use filecoin_proofs::GeneratePoStOutput;
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
@@ -147,10 +147,11 @@ impl SectorBuilder {
         &self,
         comm_rs: &[[u8; 32]],
         challenge_seed: &[u8; 32],
-    ) -> Result<GeneratePoStDynamicSectorsCountOutput> {
-        log_unrecov(
-            self.run_blocking(|tx| Request::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, tx)),
-        )
+        faults: Vec<u64>,
+    ) -> Result<GeneratePoStOutput> {
+        log_unrecov(self.run_blocking(|tx| {
+            Request::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, faults, tx)
+        }))
     }
 
     // Run a task, blocking on the return channel.

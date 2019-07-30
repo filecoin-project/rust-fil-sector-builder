@@ -273,6 +273,7 @@ mod tests {
         let comm_r = seal_output.comm_r;
         let comm_rs = vec![comm_r, comm_r];
         let challenge_seed = rng.gen();
+        let faults = vec![];
 
         let sealed_sector_path = h
             .store
@@ -284,24 +285,25 @@ mod tests {
 
         let post_output = filecoin_proofs::generate_post(
             h.store.proofs_config().post_config(),
-            challenge_seed,
+            &challenge_seed,
             vec![
                 (Some(sealed_sector_path.clone()), comm_r),
                 (Some(sealed_sector_path.clone()), comm_r),
             ],
+            &faults[..],
         )
         .expect("PoSt generation failed");
 
-        let result = filecoin_proofs::verify_post(
+        let is_valid = filecoin_proofs::verify_post(
             h.store.proofs_config().post_config(),
             comm_rs,
-            challenge_seed,
-            post_output.proofs,
-            post_output.faults,
+            &challenge_seed,
+            &post_output.proof,
+            &faults[..],
         )
         .expect("failed to run verify_post");
 
-        assert!(result.is_valid, "verification of valid proof failed");
+        assert!(is_valid, "verification of valid proof failed");
     }
 
     fn seal_unsealed_roundtrip_aux(sector_class: SectorClass, bytes_amt: BytesAmount) {

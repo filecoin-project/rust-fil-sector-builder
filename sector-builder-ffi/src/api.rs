@@ -293,41 +293,29 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
+    faults_ptr: *const u64,
+    faults_len: libc::size_t,
 ) -> *mut responses::GeneratePoStResponse {
     init_log();
 
     info!("generate_post: {}", "start");
 
     let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
+    let faults = from_raw_parts(faults_ptr, faults_len);
 
-    let result = (*ptr).generate_post(&comm_rs, challenge_seed);
+    let result = (*ptr).generate_post(&comm_rs, challenge_seed, faults.to_vec());
 
     let mut response = responses::GeneratePoStResponse::default();
 
     match result {
-        Ok(filecoin_proofs::post_adapter::GeneratePoStDynamicSectorsCountOutput {
-            proofs,
-            faults,
-        }) => {
+        Ok(filecoin_proofs::GeneratePoStOutput { proof }) => {
             response.status_code = FCPResponseStatus::FCPNoError;
 
-            let flattened_proofs: Vec<u8> = proofs.iter().flat_map(|x| x.iter().cloned()).collect();
-            response.flattened_proofs_len = flattened_proofs.len();
-            response.flattened_proofs_ptr = flattened_proofs.as_ptr();
-
-            let class = (*ptr).get_sector_class();
-            let filecoin_proofs::PoStProofPartitions(n) =
-                filecoin_proofs::PoStProofPartitions::from(filecoin_proofs::PoStConfig::from(
-                    class,
-                ));
-            response.proof_partitions = n;
-
-            response.faults_len = faults.len();
-            response.faults_ptr = faults.as_ptr();
+            response.proof_len = proof.len();
+            response.proof_ptr = proof.as_ptr();
 
             // we'll free this stuff when we free the GeneratePoSTResponse
-            mem::forget(flattened_proofs);
-            mem::forget(faults);
+            mem::forget(proof);
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -468,12 +456,11 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_verify_post(
     sector_size: u64,
-    proof_partitions: u8,
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
-    flattened_proofs_ptr: *const u8,
-    flattened_proofs_len: libc::size_t,
+    proof_ptr: *const u8,
+    proof_len: libc::size_t,
     faults_ptr: *const u64,
     faults_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifyPoStResponse {
@@ -481,12 +468,11 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
 
     filecoin_proofs_ffi::api::verify_post(
         sector_size,
-        proof_partitions,
         flattened_comm_rs_ptr,
         flattened_comm_rs_len,
         challenge_seed,
-        flattened_proofs_ptr,
-        flattened_proofs_len,
+        proof_ptr,
+        proof_len,
         faults_ptr,
         faults_len,
     )

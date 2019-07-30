@@ -393,9 +393,9 @@ impl ProofsConfig for Config {
 impl From<SectorClass> for Config {
     fn from(x: SectorClass) -> Self {
         match x {
-            SectorClass(size, porep_p, post_p) => Config {
+            SectorClass(size, porep_p, _post_p) => Config {
                 porep_config: PoRepConfig(size, porep_p),
-                post_config: PoStConfig(size, post_p),
+                post_config: PoStConfig(size),
             },
         }
     }

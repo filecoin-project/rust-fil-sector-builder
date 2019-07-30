@@ -3,8 +3,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
-use filecoin_proofs::generate_post;
-use filecoin_proofs::post_adapter::*;
+use filecoin_proofs::{generate_post, GeneratePoStOutput};
 
 use crate::builder::{SectorId, WrappedKeyValueStore};
 use crate::error::{err_piecenotfound, err_unrecov, Result};
@@ -45,8 +44,9 @@ pub enum Request {
     GetSealStatus(SectorId, mpsc::SyncSender<Result<SealStatus>>),
     GeneratePoSt(
         Vec<[u8; 32]>,
-        [u8; 32],
-        mpsc::SyncSender<Result<GeneratePoStDynamicSectorsCountOutput>>,
+        [u8; 32], // seed
+        Vec<u64>, // faults
+        mpsc::SyncSender<Result<GeneratePoStOutput>>,
     ),
     RetrievePiece(String, mpsc::SyncSender<Result<Vec<u8>>>),
     SealAllStagedSectors(mpsc::SyncSender<Result<()>>),
@@ -125,8 +125,8 @@ impl Scheduler {
                     Request::HandleSealResult(sector_id, result) => {
                         m.handle_seal_result(sector_id, *result);
                     }
-                    Request::GeneratePoSt(comm_rs, chg_seed, tx) => {
-                        m.generate_post(&comm_rs, &chg_seed, tx)
+                    Request::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
+                        m.generate_post(&comm_rs, &chg_seed, faults, tx)
                     }
                     Request::Shutdown => break,
                 }
@@ -160,7 +160,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         &self,
         comm_rs: &[[u8; 32]],
         challenge_seed: &[u8; 32],
-        return_channel: mpsc::SyncSender<Result<GeneratePoStDynamicSectorsCountOutput>>,
+        faults: Vec<u64>,
+        return_channel: mpsc::SyncSender<Result<GeneratePoStOutput>>,
     ) {
         // reduce our sealed sector state-map to a mapping of comm_r to sealed
         // sector access
@@ -189,13 +190,11 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             input_parts.push((access, *comm_r));
         }
 
-        let mut seed = [0; 32];
-        seed.copy_from_slice(challenge_seed);
-
         let output = generate_post(
             self.sector_store.proofs_config().post_config(),
-            seed,
+            challenge_seed,
             input_parts,
+            &faults,
         );
 
         // TODO: Where should this work be scheduled? New worker type?

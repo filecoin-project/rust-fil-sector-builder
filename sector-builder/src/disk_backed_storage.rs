@@ -16,22 +16,20 @@ pub struct DiskManager {
     sealed_path: String,
 }
 
-impl DiskManager {
-    fn sector_path<P: AsRef<Path>>(&self, sector_dir: P, access: &str) -> PathBuf {
-        let mut file_path = PathBuf::from(sector_dir.as_ref());
-        file_path.push(access);
+fn sector_path<P: AsRef<Path>>(sector_dir: P, access: &str) -> PathBuf {
+    let mut file_path = PathBuf::from(sector_dir.as_ref());
+    file_path.push(access);
 
-        file_path
-    }
+    file_path
 }
 
 impl SectorManager for DiskManager {
     fn sealed_sector_path(&self, access: &str) -> PathBuf {
-        self.sector_path(&self.sealed_path, access)
+        sector_path(&self.sealed_path, access)
     }
 
     fn staged_sector_path(&self, access: &str) -> PathBuf {
-        self.sector_path(&self.staging_path, access)
+        sector_path(&self.staging_path, access)
     }
 
     fn new_sealed_sector_access(&self) -> Result<String, SectorManagerErr> {

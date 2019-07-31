@@ -46,9 +46,8 @@ impl SectorBuilder {
         staged_sector_dir: S,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
-        Self::ensure_param_cache_is_hydrated(sector_class).map_err(|err| {
-            format_err!("Missing cache for {:?} (error: {:?})", sector_class, err)
-        })?;
+        Self::ensure_param_cache_is_hydrated(sector_class)
+            .map_err(|err| format_err!("Missing cache for {:?} (error: {})", sector_class, err))?;
 
         let kv_store = Arc::new(WrappedKeyValueStore {
             inner: Box::new(SledKvs::initialize(metadata_dir.into())?),
@@ -262,7 +261,7 @@ fn log_unrecov<T>(result: Result<T>) -> Result<T> {
 fn ensure_file(p: impl AsRef<Path>) -> Result<()> {
     let metadata = fs::metadata(p.as_ref()).map_err(|err| {
         format_err!(
-            "Failed to stat file {}: {:?}",
+            "Failed to stat file {}: {}",
             p.as_ref().to_string_lossy(),
             err
         )

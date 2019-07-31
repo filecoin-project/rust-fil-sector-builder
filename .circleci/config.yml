@@ -14,7 +14,7 @@ jobs:
           command: cargo generate-lockfile
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: rustup component add rustfmt-preview
@@ -26,15 +26,32 @@ jobs:
       - run:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
-            cargo install filecoin-proofs --git https://github.com/filecoin-project/rust-fil-proofs || true
-            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
-            paramcache --test-only
+            # capture the appropriate version of the filecoin-proofs crate
+            filecoin_proofs_version=$(find . -type f -name "Cargo.toml" \
+              | xargs grep "filecoin-proofs = " \
+              | head -n 1 \
+              | tr -d '"' \
+              | cut -d '=' -f 2 \
+              | tr -d ' ')
+
+            # install paramfetch
+            cargo install filecoin-proofs --version $filecoin_proofs_version || true
+            which paramfetch || { printf '%s\n' "missing paramfetch binary" >&2; exit 1; }
+
+            # get parameter manifest using filecoin-proofs version and Git
+            tmp_dir=$(mktemp -d)
+            git clone https://github.com/filecoin-project/rust-fil-proofs.git $tmp_dir
+            cd $tmp_dir
+            git checkout "filecoin-proofs-${filecoin_proofs_version}"
+
+            # download Groth parameters
+            paramfetch --json=./parameters.json --params-for-sector-sizes=1024
       - persist_to_workspace:
           root: "."
           paths:
             - Cargo.lock
       - save_cache:
-          key: cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+          key: cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
           paths:
             - /root/.cargo
             - /root/.rustup
@@ -51,7 +68,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable)
           command: cargo +stable test --verbose --frozen --all
@@ -79,7 +96,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable) in release profile
           command: |
@@ -98,13 +115,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
-      - run:
-          name: Wombat Attack
-          command: |
-            echo $ENV
-            ls -al /root/.filecoin-parameter-cache
-            exit 42
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Build the static lib for linking into the example
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --frozen --package sector-builder-ffi
@@ -124,7 +135,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable) in release profile
           command: cargo +stable test --verbose --release --frozen --all -- --ignored
@@ -141,7 +152,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (nightly)
           command: cargo +$(cat rust-toolchain) test --verbose --frozen --all
@@ -159,7 +170,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Benchmarks (nightly)
           command: cargo +$(cat rust-toolchain) build --benches --verbose --frozen --all
@@ -177,7 +188,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Run cargo fmt
           command: cargo fmt --all -- --check
@@ -194,7 +205,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Run cargo clippy
           command: cargo clippy --all
@@ -211,7 +222,7 @@ jobs:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Install jq
           command: apt-get install jq -yqq

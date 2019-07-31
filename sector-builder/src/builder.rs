@@ -1,8 +1,9 @@
+use std::fs;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::post_adapter::*;
-use filecoin_proofs::types::{PaddedBytesAmount, SectorClass};
+use filecoin_proofs::types::{PaddedBytesAmount, PoRepConfig, PoStConfig, SectorClass};
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
@@ -44,6 +45,8 @@ impl SectorBuilder {
         staged_sector_dir: S,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
+        Self::ensure_param_cache_is_hydrated(sector_class)?;
+
         let kv_store = Arc::new(WrappedKeyValueStore {
             inner: Box::new(SledKvs::initialize(metadata_dir.into())?),
         });
@@ -94,6 +97,34 @@ impl SectorBuilder {
             sealers: seal_workers,
             sector_class,
         })
+    }
+
+    /// Checks the parameter cache for the given sector size.
+    /// Returns an `Err` if it is not hydrated.
+    fn ensure_param_cache_is_hydrated(sector_class: SectorClass) -> Result<()> {
+        let cache_path = storage_proofs::parameter_cache::parameter_cache_dir();
+
+        // PoRep
+        let porep_config: PoRepConfig = sector_class.into();
+        let porep_cache_id = porep_config.get_cache_identifier();
+        let porep_cache_metadata = fs::metadata(cache_path.join(porep_cache_id))?;
+        ensure!(
+            porep_cache_metadata.is_file(),
+            "PoRep cache file is not a file"
+        );
+        ensure!(porep_cache_metadata.len() > 0, "empty PoRep cache file");
+
+        // PoSt
+        let post_config: PoStConfig = sector_class.into();
+        let post_cache_id = post_config.get_cache_identifier();
+        let post_cache_metadata = fs::metadata(cache_path.join(post_cache_id))?;
+        ensure!(
+            post_cache_metadata.is_file(),
+            "PoSt cache file is not a file"
+        );
+        ensure!(post_cache_metadata.len() > 0, "empty PoSt cache file");
+
+        Ok(())
     }
 
     // Stages user piece-bytes for sealing. Note that add_piece calls are

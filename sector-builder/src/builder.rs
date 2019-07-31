@@ -113,6 +113,9 @@ impl SectorBuilder {
         let porep_cache_key = porep_config.get_cache_verifying_key_path();
         ensure_file(porep_cache_key)?;
 
+        let porep_cache_params = porep_config.get_cache_params_path();
+        ensure_file(porep_cache_params)?;
+
         // PoSt
         let post_config: PoStConfig = sector_class.into();
         let post_cache_meta = post_config.get_cache_metadata_path();
@@ -120,6 +123,8 @@ impl SectorBuilder {
 
         let post_cache_key = post_config.get_cache_verifying_key_path();
         ensure_file(post_cache_key)?;
+        let post_cache_params = post_config.get_cache_params_path();
+        ensure_file(post_cache_params)?;
 
         Ok(())
     }

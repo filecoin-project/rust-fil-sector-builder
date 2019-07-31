@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -45,7 +46,9 @@ impl SectorBuilder {
         staged_sector_dir: S,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
-        Self::ensure_param_cache_is_hydrated(sector_class)?;
+        Self::ensure_param_cache_is_hydrated(sector_class).map_err(|err| {
+            format_err!("Missing cache for {:?} (error: {:?})", sector_class, err)
+        })?;
 
         let kv_store = Arc::new(WrappedKeyValueStore {
             inner: Box::new(SledKvs::initialize(metadata_dir.into())?),
@@ -102,27 +105,21 @@ impl SectorBuilder {
     /// Checks the parameter cache for the given sector size.
     /// Returns an `Err` if it is not hydrated.
     fn ensure_param_cache_is_hydrated(sector_class: SectorClass) -> Result<()> {
-        let cache_path = storage_proofs::parameter_cache::parameter_cache_dir();
-
         // PoRep
         let porep_config: PoRepConfig = sector_class.into();
-        let porep_cache_id = porep_config.get_cache_identifier();
-        let porep_cache_metadata = fs::metadata(cache_path.join(porep_cache_id))?;
-        ensure!(
-            porep_cache_metadata.is_file(),
-            "PoRep cache file is not a file"
-        );
-        ensure!(porep_cache_metadata.len() > 0, "empty PoRep cache file");
+        let porep_cache_meta = porep_config.get_cache_metadata_path();
+        ensure_file(porep_cache_meta)?;
+
+        let porep_cache_key = porep_config.get_cache_verifying_key_path();
+        ensure_file(porep_cache_key)?;
 
         // PoSt
         let post_config: PoStConfig = sector_class.into();
-        let post_cache_id = post_config.get_cache_identifier();
-        let post_cache_metadata = fs::metadata(cache_path.join(post_cache_id))?;
-        ensure!(
-            post_cache_metadata.is_file(),
-            "PoSt cache file is not a file"
-        );
-        ensure!(post_cache_metadata.len() > 0, "empty PoSt cache file");
+        let post_cache_meta = post_config.get_cache_metadata_path();
+        ensure_file(post_cache_meta)?;
+
+        let post_cache_key = post_config.get_cache_verifying_key_path();
+        ensure_file(post_cache_key)?;
 
         Ok(())
     }
@@ -255,4 +252,26 @@ fn log_unrecov<T>(result: Result<T>) -> Result<T> {
     }
 
     result
+}
+
+fn ensure_file(p: impl AsRef<Path>) -> Result<()> {
+    let metadata = fs::metadata(p.as_ref()).map_err(|err| {
+        format_err!(
+            "Failed to stat file {}: {:?}",
+            p.as_ref().to_string_lossy(),
+            err
+        )
+    })?;
+    ensure!(
+        metadata.is_file(),
+        "Not a file: {}",
+        p.as_ref().to_string_lossy()
+    );
+    ensure!(
+        metadata.len() > 0,
+        "Empty file: {}",
+        p.as_ref().to_string_lossy()
+    );
+
+    Ok(())
 }

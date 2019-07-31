@@ -1,5 +1,5 @@
+version: 2.1
 
-version: 2
 jobs:
   cargo_fetch:
     docker:
@@ -7,13 +7,14 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: rustup component add rustfmt-preview
@@ -33,7 +34,7 @@ jobs:
           paths:
             - Cargo.lock
       - save_cache:
-          key: cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+          key: cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
           paths:
             - /root/.cargo
             - /root/.rustup
@@ -44,12 +45,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable)
           command: cargo +stable test --verbose --frozen --all
@@ -71,12 +73,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable) in release profile
           command: |
@@ -89,12 +92,19 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - run:
+          name: Wombat Attack
+          command: |
+            echo $ENV
+            ls -al /root/.filecoin-parameter-cache
+            exit 42
       - run:
           name: Build the static lib for linking into the example
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --frozen --package sector-builder-ffi
@@ -108,12 +118,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable) in release profile
           command: cargo +stable test --verbose --release --frozen --all -- --ignored
@@ -124,12 +135,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (nightly)
           command: cargo +$(cat rust-toolchain) test --verbose --frozen --all
@@ -141,12 +153,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Benchmarks (nightly)
           command: cargo +$(cat rust-toolchain) build --benches --verbose --frozen --all
@@ -158,12 +171,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Run cargo fmt
           command: cargo fmt --all -- --check
@@ -174,12 +188,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Run cargo clippy
           command: cargo clippy --all
@@ -190,12 +205,13 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
+      - linux_configure_env
       - checkout
       - attach_workspace:
           at: "."
       - restore_cache:
           keys:
-            - cargo-v6-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+            - cargo-v8b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Install jq
           command: apt-get install jq -yqq
@@ -280,3 +296,12 @@ workflows:
           filters:
             branches:
               only: master
+
+commands:
+  linux_configure_env:
+    steps:
+      - run:
+          name: Configure environment variables
+          command: |
+            echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
+            source $BASH_ENV

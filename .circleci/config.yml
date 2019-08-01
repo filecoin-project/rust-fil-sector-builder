@@ -303,4 +303,6 @@ commands:
           command: |
             echo 'export RUST_LOG=info' >> $BASH_ENV
             echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
+            echo 'export RUST_LOG=info' >> $BASH_ENV
+            echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
             source $BASH_ENV

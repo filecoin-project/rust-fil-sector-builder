@@ -57,7 +57,7 @@ jobs:
             - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable)
-          command: cargo +stable test --verbose --frozen --all
+          command: cargo +stable test --verbose --all
           no_output_timeout: 15m
       - run:
           name: Prune the output files
@@ -86,8 +86,8 @@ jobs:
       - run:
           name: Test (stable) in release profile
           command: |
-            cargo +stable test --verbose --release --frozen --all
-            RUSTFLAGS="-D warnings" cargo +stable build --examples --release --frozen --all
+            cargo +stable test --verbose --release --all
+            RUSTFLAGS="-D warnings" cargo +stable build --examples --release --all
 
   ffi_regression:
     docker:
@@ -104,7 +104,7 @@ jobs:
             - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Build the static lib for linking into the example
-          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --frozen --package sector-builder-ffi
+          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --package sector-builder-ffi
       - run:
           name: run regression tests (examples) against libsector_builder_ffi.a
           command: RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu
@@ -124,7 +124,7 @@ jobs:
             - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (stable) in release profile
-          command: cargo +stable test --verbose --release --frozen --all -- --ignored
+          command: cargo +stable test --verbose --release --all -- --ignored
 
   test_nightly:
     docker:
@@ -141,7 +141,7 @@ jobs:
             - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Test (nightly)
-          command: cargo +$(cat rust-toolchain) test --verbose --frozen --all
+          command: cargo +$(cat rust-toolchain) test --verbose --all
           no_output_timeout: 15m
 
   bench_nightly:
@@ -159,7 +159,7 @@ jobs:
             - cargo-v1-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
       - run:
           name: Benchmarks (nightly)
-          command: cargo +$(cat rust-toolchain) build --benches --verbose --frozen --all
+          command: cargo +$(cat rust-toolchain) build --benches --verbose --all
           no_output_timeout: 15m
 
   rustfmt:
@@ -214,7 +214,7 @@ jobs:
           command: apt-get install jq -yqq
       - run:
           name: Build the release
-          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --frozen --all
+          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --all
       - run:
           name: Publish release to GitHub
           command: bash ./scripts/publish-release.sh
@@ -248,7 +248,7 @@ jobs:
             chmod +x $HOME/.bin/jq
       - run:
           name: Build the release
-          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --frozen --all
+          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --all
       - run:
           name: Publish release to GitHub
           command: bash ./scripts/publish-release.sh

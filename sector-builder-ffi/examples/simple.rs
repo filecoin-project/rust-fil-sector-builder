@@ -131,7 +131,7 @@ struct ConfigurableSizes {
     fourth_piece_bytes: usize,
 }
 
-unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<Error>> {
+unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn Error>> {
     let metadata_dir_a = tempfile::tempdir().unwrap();
     let metadata_dir_b = tempfile::tempdir().unwrap();
     let staging_dir_a = tempfile::tempdir().unwrap();

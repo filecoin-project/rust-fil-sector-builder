@@ -108,6 +108,28 @@ impl Default for InitSectorBuilderResponse {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/// InitSectorBuilderResponse
+/////////////////////////////
+
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct IsParamCacheHydratedResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub is_hydrated: bool,
+}
+
+impl Default for IsParamCacheHydratedResponse {
+    fn default() -> Self {
+        Self {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            is_hydrated: false,
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
 /// AddPieceResponse
 ////////////////////
 

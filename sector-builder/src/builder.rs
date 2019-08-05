@@ -46,9 +46,6 @@ impl SectorBuilder {
         staged_sector_dir: S,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
-        Self::ensure_param_cache_is_hydrated(sector_class)
-            .map_err(|err| format_err!("Missing cache for {:?} (error: {})", sector_class, err))?;
-
         let kv_store = Arc::new(WrappedKeyValueStore {
             inner: Box::new(SledKvs::initialize(metadata_dir.into())?),
         });
@@ -103,7 +100,9 @@ impl SectorBuilder {
 
     /// Checks the parameter cache for the given sector size.
     /// Returns an `Err` if it is not hydrated.
-    fn ensure_param_cache_is_hydrated(sector_class: SectorClass) -> Result<()> {
+    pub fn is_param_cache_hydrated(&self) -> Result<()> {
+        let sector_class = self.sector_class;
+
         // PoRep
         let porep_config: PoRepConfig = sector_class.into();
         let porep_cache_meta = porep_config.get_cache_metadata_path();

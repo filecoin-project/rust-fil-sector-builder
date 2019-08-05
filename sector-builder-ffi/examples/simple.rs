@@ -176,6 +176,12 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         sizes.sector_class,
     );
 
+    // verify that we have params in the cache
+    assert!(
+        sector_builder_ffi_is_param_cache_hydrated(sector_builder_a),
+        "cache is not hydrated"
+    );
+
     // TODO: Replace the hard-coded byte amounts with values computed
     // from whatever was retrieved from the SectorBuilder.
     if max_bytes != sizes.max_bytes {

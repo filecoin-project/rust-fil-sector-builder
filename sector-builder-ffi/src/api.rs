@@ -382,6 +382,17 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     raw_ptr(response)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_is_param_cache_hydrated(
+    ptr: *mut SectorBuilder,
+) -> bool {
+    init_log();
+    assert!(!ptr.is_null(), "invalid pointer");
+    let sector_builder = &*ptr;
+
+    sector_builder.is_param_cache_hydrated().is_ok()
+}
+
 /// Unseals and returns the bytes associated with the provided piece key.
 ///
 #[no_mangle]

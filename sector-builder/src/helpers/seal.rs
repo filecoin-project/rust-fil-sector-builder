@@ -15,9 +15,6 @@ pub fn seal(
     staged_sector: StagedSectorMetadata,
 ) -> error::Result<SealedSectorMetadata> {
     // Provision a new sealed sector access through the manager.
-    // TODO: We could directly use staged_sector access name as the sealed name here
-    // i.e. let sealed_sector_access = staged_sector.sector_access
-    //  This requires relative path is used as the access name. 
     let sealed_sector_access = sector_store
         .manager()
         .new_sealed_sector_access(staged_sector.sector_id)

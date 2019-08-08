@@ -179,8 +179,7 @@ impl DiskManager {
     }     
 }
 
-#[allow(dead_code)]
-// Some functions below for future use.
+
 
 struct SectorAccessSplit<'a> {
     proto:      &'a str,
@@ -188,6 +187,8 @@ struct SectorAccessSplit<'a> {
     ind_str:    &'a str,
 }
 
+// Some functions below for future use.
+#[allow(dead_code)]
 impl SectorAccessProto {
     // Check the format is as defined
     fn validate_format<'a>(&self, access_name: &'a str) -> Result<SectorAccessSplit<'a>, SectorManagerErr> {
@@ -208,20 +209,20 @@ impl SectorAccessProto {
 
     // Return the sector index (the lower 32bit value) or Error when the format is incorrect
     fn validate_and_return_index(&self, access_name: &str) -> Result<u32, SectorManagerErr> {
-        let sectorAccessSplit = self.validate_format(access_name)?;
-           
-        let index = sectorAccessSplit.ind_str.parse::<u32>()
+        let sector_access_split = self.validate_format(access_name)?;
+
+        let index = sector_access_split.ind_str.parse::<u32>()
                     .map_err(|_|{
-                        SectorManagerErr::CallerError(format!("sector index {} is invalid", sectorAccessSplit.ind_str))
+                        SectorManagerErr::CallerError(format!("sector index {} is invalid", sector_access_split.ind_str))
                     })?;
 
         match self {
             SectorAccessProto::Original(seg_id) => {
-                if sectorAccessSplit.proto != "on" {
+                if sector_access_split.proto != "on" {
                     Err(SectorManagerErr::CallerError(
                         format!("The worker is set to Original format sector access only, the file '{}' is not.", access_name))
                     )
-                } else if sectorAccessSplit.seg_str != format!("{:12}", seg_id) {
+                } else if sector_access_split.seg_str != format!("{:012}", seg_id) {
                     Err(SectorManagerErr::CallerError(
                             format!("The seg_id should be {:12}, the file '{}' is not.", seg_id, access_name)
                         )
@@ -229,9 +230,9 @@ impl SectorAccessProto {
                 } else { Ok(index) }
             }
             SectorAccessProto::IpV4(ip1, ip2, ip3, ip4) => {
-                if sectorAccessSplit.proto != "ip" {
+                if sector_access_split.proto != "ip" {
                     Err(SectorManagerErr::CallerError(format!("The worker is set to Ip format sector access only, the file '{}' is not.", access_name)))
-                } else if sectorAccessSplit.seg_str != &format!("{:03}{:03}{:03}{:03}", ip1, ip2, ip3, ip4) {
+                } else if sector_access_split.seg_str != &format!("{:03}{:03}{:03}{:03}", ip1, ip2, ip3, ip4) {
                     Err(SectorManagerErr::CallerError(format!("The seg_id should be {:03}{:03}{:03}{:03}, the file '{}' is not.", 
                                                                 ip1, ip2, ip3, ip4, access_name)))
                 } else { Ok(index) }
@@ -240,32 +241,33 @@ impl SectorAccessProto {
     }
 
     // Return SectorID from the access name, no validation to see if the access_name format is defined by the initiated SectorAccessProto
+    // This method could be used when sealing is done by one node, but import by another
     fn get_sector_id_from_access_name(&self, access_name: &str) -> Result<SectorId, SectorManagerErr> {
-        let sectorAccessSplit = self.validate_format(access_name)?;
+        let sector_access_split = self.validate_format(access_name)?;
            
-        let index = sectorAccessSplit.ind_str.parse::<u32>()
+        let index = sector_access_split.ind_str.parse::<u32>()
                     .map_err(|_|{
-                        SectorManagerErr::CallerError(format!("sector index {} is invalid", sectorAccessSplit.ind_str))
+                        SectorManagerErr::CallerError(format!("sector index {} is invalid", sector_access_split.ind_str))
                     })?;
 
-        if sectorAccessSplit.proto == "on" {
-            let seg_id = sectorAccessSplit.seg_str.parse::<u32>()
+        if sector_access_split.proto == "on" {
+            let seg_id = sector_access_split.seg_str.parse::<u32>()
                         .map_err(|_|{
-                            SectorManagerErr::CallerError(format!("sector index {} is invalid", sectorAccessSplit.ind_str))
+                            SectorManagerErr::CallerError(format!("sector index {} is invalid", sector_access_split.ind_str))
                         })? as u64;
 
-            Ok( seg_id << 32 + index as u64 )
-        } else if sectorAccessSplit.proto == "ip" {
+            Ok( (seg_id << 32) + index as u64 )
+        } else if sector_access_split.proto == "ip" {
                 // This is an IP lead sector access name 
                 let mut seg_id: u64 = 0;
-                let ip1 = sectorAccessSplit.seg_str[..3].parse::<u64>().unwrap(); seg_id += ip1; seg_id<<=8;
-                let ip2 = sectorAccessSplit.seg_str[3..6].parse::<u64>().unwrap(); seg_id += ip2; seg_id<<=8;
-                let ip3 = sectorAccessSplit.seg_str[6..9].parse::<u64>().unwrap(); seg_id += ip3; seg_id<<=8;
-                let ip4 = sectorAccessSplit.seg_str[9..].parse::<u64>().unwrap(); seg_id += ip4; 
-                Ok(seg_id + index as u64)
+                let ip1 = sector_access_split.seg_str[..3].parse::<u64>().unwrap(); seg_id += ip1; seg_id<<=8;
+                let ip2 = sector_access_split.seg_str[3..6].parse::<u64>().unwrap(); seg_id += ip2; seg_id<<=8;
+                let ip3 = sector_access_split.seg_str[6..9].parse::<u64>().unwrap(); seg_id += ip3; seg_id<<=8;
+                let ip4 = sector_access_split.seg_str[9..].parse::<u64>().unwrap(); seg_id += ip4; 
+                Ok( (seg_id << 32) + index as u64)
         } else  {
                 Err(SectorManagerErr::CallerError(
-                    format!("the access-name proto {} of access_name {} is not supportede.", sectorAccessSplit.proto, access_name)
+                    format!("the access-name proto {} of access_name {} is not supportede.", sector_access_split.proto, access_name)
                     )  
                 )
         }
@@ -534,5 +536,62 @@ pub mod tests {
             .manager()
             .read_raw(&access, 0, UnpaddedBytesAmount(0))
             .is_err());
+    }
+
+    #[test]
+    fn get_sector_id_from_access_original(){
+        // Test original design of sector_access.
+        let sector_access_proto = &SectorAccessProto::Original(0u32);
+        let sector_id = sector_access_proto.get_sector_id_from_access_name("on-000000000000-1234567800").unwrap(); 
+        assert_eq!(sector_id, 0x0000000049960278_u64);
+
+        // With a segment ID - Original
+        let sector_access_proto = SectorAccessProto::Original(987654u32);
+        let sector_id = sector_access_proto.get_sector_id_from_access_name("on-000000987654-0000000010").unwrap(); 
+        assert_eq!(sector_id, 0x000f12060000000a_u64);
+
+        // you could get the sector_id value even the segment_id does not match the initiated one.
+        let sector_id = sector_access_proto.get_sector_id_from_access_name("on-000001987654-0000000010").unwrap(); 
+        assert_eq!(sector_id, 0x001e54460000000a_u64);
+    }
+
+    #[test]
+    fn get_sector_id_from_access_ipv4(){
+        let sector_access_proto = SectorAccessProto::IpV4(192, 168, 001, 010);
+        let sector_id = sector_access_proto.get_sector_id_from_access_name("ip-192168001010-0000000010").unwrap(); 
+        assert_eq!(sector_id, 0xc0a8010a0000000a_u64);
+
+        // you could get the sector_id value even the segment_id does not match the initiated one.
+        let sector_id = sector_access_proto.get_sector_id_from_access_name("ip-192168001011-0000000010").unwrap(); 
+        assert_eq!(sector_id, 0xc0a8010b0000000a_u64);
+    }    
+    
+    #[test]
+    fn validate_access_proto(){
+        let sector_access_proto = &SectorAccessProto::Original(0_u32);
+        let ret = sector_access_proto.validate_and_return_index("on-000000000000-1234567800");
+        print!("{:?}", ret);
+        // assert_eq!(index, 0x49960278_u32);
+
+        let index = sector_access_proto.validate_and_return_index("on-000000000000-1234567800").unwrap(); 
+        assert_eq!(index, 0x49960278_u32);
+
+        let res = sector_access_proto.validate_and_return_index("on-000000123456-1234567800"); 
+        assert!(res.is_err(), "seg_id is not matched");
+
+        // With a segment ID - Original
+        let sector_access_proto = SectorAccessProto::Original(987654u32);
+        let index = sector_access_proto.validate_and_return_index("on-000000987654-0000000010").unwrap(); 
+        assert_eq!(index, 0x0000000a_u32);
+
+        let res = sector_access_proto.validate_and_return_index("on-000000987123-0000000010");
+        assert!(res.is_err(), "seg_id is not matched");
+
+        let sector_access_proto = SectorAccessProto::IpV4(192, 168, 001, 010);
+        let index = sector_access_proto.validate_and_return_index("ip-192168001010-0000000010").unwrap(); 
+        assert_eq!(index, 0x0000000a_u32);
+
+        let res = sector_access_proto.validate_and_return_index("ip-192168010011-0000000010"); 
+        assert!(res.is_err(), "segment_index is not match");
     }
 }

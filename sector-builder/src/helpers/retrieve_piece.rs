@@ -16,9 +16,6 @@ pub fn retrieve_piece<'a>(
     prover_id: &[u8; 31],
     piece_key: &'a str,
 ) -> error::Result<Vec<u8>> {
-    // TODO: This could changed to 
-    // let staging_sector_access = sealed_sector.sector_access
-    //      Once sector_access only represent the relative path 
     let staging_sector_access = sector_store
         .manager()
         .new_staging_sector_access(sealed_sector.sector_id)

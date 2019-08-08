@@ -113,15 +113,15 @@ mod tests {
         let max: u64 = store.sector_config().max_unsealed_bytes_per_sector().into();
 
         let staged_access = mgr
-            .new_staging_sector_access()
+            .new_staging_sector_access(0x0000000012345678)
             .expect("could not create staging access");
 
         let sealed_access = mgr
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(0x0000000087654321)
             .expect("could not create sealed access");
 
         let unseal_access = mgr
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(0x00000000fffffffe)
             .expect("could not create unseal access");
 
         let prover_id = [2; 31];
@@ -458,7 +458,7 @@ mod tests {
         let unseal_access = h
             .store
             .manager()
-            .new_sealed_sector_access()
+            .new_sealed_sector_access(0x0000000000000001)
             .expect("could not create unseal access");
 
         let unsealed_sector_path = h

@@ -163,7 +163,7 @@ impl DiskManager {
         sector_id: SectorId,
     ) -> Result<String, SectorManagerErr> {
         let seg_id = (sector_id >> 32) as u32;
-        let index = (sector_id & 0x00000000ffffffff) as u32;
+        let index = (sector_id & 0x0000_0000_ffff_ffff) as u32;
 
         if seg_id != self.sector_segment_id {
             // Strictly check if the sector_segment is the same as the initated one.
@@ -191,7 +191,7 @@ impl DiskManager {
             .sector_access_proto
             .validate_and_return_index(access_name)?;
 
-        Ok((self.sector_segment_id as u64) << 32 + ind)
+        Ok((u64::from(self.sector_segment_id) << 32) + u64::from(ind))
     }
 }
 
@@ -209,12 +209,8 @@ impl SectorAccessProto {
         &self,
         access_name: &'a str,
     ) -> Result<SectorAccessSplit<'a>, SectorManagerErr> {
-        if access_name.len() != 26 {
-            Err(SectorManagerErr::CallerError(format!(
-                "The sector file name '{}' is not supported in this version",
-                access_name
-            )))
-        } else if access_name.chars().nth(2).unwrap() != '-'
+        if access_name.len() != 26
+            || access_name.chars().nth(2).unwrap() != '-'
             || access_name.chars().nth(15).unwrap() != '-'
         {
             Err(SectorManagerErr::CallerError(format!(
@@ -263,7 +259,7 @@ impl SectorAccessProto {
                         access_name
                     )))
                 } else if sector_access_split.seg_str
-                    != &format!("{:03}{:03}{:03}{:03}", ip1, ip2, ip3, ip4)
+                    != format!("{:03}{:03}{:03}{:03}", ip1, ip2, ip3, ip4)
                 {
                     Err(SectorManagerErr::CallerError(format!(
                         "The seg_id should be {:03}{:03}{:03}{:03}, the file '{}' is not.",
@@ -292,14 +288,14 @@ impl SectorAccessProto {
         })?;
 
         if sector_access_split.proto == "on" {
-            let seg_id = sector_access_split.seg_str.parse::<u32>().map_err(|_| {
+            let seg_id = u64::from(sector_access_split.seg_str.parse::<u32>().map_err(|_| {
                 SectorManagerErr::CallerError(format!(
                     "sector index {} is invalid",
                     sector_access_split.ind_str
                 ))
-            })? as u64;
+            })?);
 
-            Ok((seg_id << 32) + index as u64)
+            Ok((seg_id << 32) + u64::from(index))
         } else if sector_access_split.proto == "ip" {
             // This is an IP lead sector access name
             let mut seg_id: u64 = 0;
@@ -314,7 +310,7 @@ impl SectorAccessProto {
             seg_id <<= 8;
             let ip4 = sector_access_split.seg_str[9..].parse::<u64>().unwrap();
             seg_id += ip4;
-            Ok((seg_id << 32) + index as u64)
+            Ok((seg_id << 32) + u64::from(index))
         } else {
             Err(SectorManagerErr::CallerError(format!(
                 "the access-name proto {} of access_name {} is not supportede.",

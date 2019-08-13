@@ -228,6 +228,7 @@ jobs:
       - run:
           name: Configure environment variables
           command: |
+            echo 'export RUST_LOG=filecoin_proofs=info' >> $BASH_ENV
             echo 'export PATH="${HOME}/.cargo/bin:${HOME}/.bin:${PATH}"' >> $BASH_ENV
             echo 'export CIRCLE_ARTIFACTS="/tmp"' >> $BASH_ENV
       - checkout
@@ -300,5 +301,6 @@ commands:
       - run:
           name: Configure environment variables
           command: |
+            echo 'export RUST_LOG=filecoin_proofs=info' >> $BASH_ENV
             echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
             source $BASH_ENV

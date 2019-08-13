@@ -4,7 +4,3 @@ members = [
   "sector-builder",
   "sector-builder-ffi"
 ]
-
-[patch.crates-io]
-filecoin-proofs = { git = 'https://github.com/filecoin-project/rust-fil-proofs.git', branch = 'master' }
-storage-proofs = { git = 'https://github.com/filecoin-project/rust-fil-proofs.git', branch = 'master' }

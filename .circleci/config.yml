@@ -27,7 +27,7 @@ jobs:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
             # install paramfetch
-            cargo install filecoin-proofs --git https://github.com/filecoin-project/rust-fil-proofs --branch master
+            cargo install filecoin-proofs --force --git https://github.com/filecoin-project/rust-fil-proofs --branch master
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
 
             # compute and cache Groth parameters for 1KiB sectors
@@ -228,7 +228,7 @@ jobs:
       - run:
           name: Configure environment variables
           command: |
-            echo 'export RUST_LOG=filecoin_proofs=info' >> $BASH_ENV
+            echo 'export RUST_LOG=info' >> $BASH_ENV
             echo 'export PATH="${HOME}/.cargo/bin:${HOME}/.bin:${PATH}"' >> $BASH_ENV
             echo 'export CIRCLE_ARTIFACTS="/tmp"' >> $BASH_ENV
       - checkout
@@ -301,6 +301,6 @@ commands:
       - run:
           name: Configure environment variables
           command: |
-            echo 'export RUST_LOG=filecoin_proofs=info' >> $BASH_ENV
+            echo 'export RUST_LOG=info' >> $BASH_ENV
             echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
             source $BASH_ENV

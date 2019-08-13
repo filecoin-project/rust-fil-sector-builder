@@ -26,26 +26,12 @@ jobs:
       - run:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
-            # capture the appropriate version of the filecoin-proofs crate
-            filecoin_proofs_version=$(find . -type f -name "Cargo.toml" \
-              | xargs grep "filecoin-proofs = " \
-              | head -n 1 \
-              | tr -d '"' \
-              | cut -d '=' -f 2 \
-              | tr -d ' ')
-
             # install paramfetch
-            cargo install filecoin-proofs --version $filecoin_proofs_version || true
-            which paramfetch || { printf '%s\n' "missing paramfetch binary" >&2; exit 1; }
+            cargo install filecoin-proofs --force --git https://github.com/filecoin-project/rust-fil-proofs --branch master
+            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
 
-            # get parameter manifest using filecoin-proofs version and Git
-            tmp_dir=$(mktemp -d)
-            git clone https://github.com/filecoin-project/rust-fil-proofs.git $tmp_dir
-            cd $tmp_dir
-            git checkout "filecoin-proofs-${filecoin_proofs_version}"
-
-            # download Groth parameters
-            paramfetch --json=./parameters.json --params-for-sector-sizes=1024
+            # compute and cache Groth parameters for 1KiB sectors
+            paramcache --test-only
       - persist_to_workspace:
           root: "."
           paths:
@@ -242,6 +228,7 @@ jobs:
       - run:
           name: Configure environment variables
           command: |
+            echo 'export RUST_LOG=info' >> $BASH_ENV
             echo 'export PATH="${HOME}/.cargo/bin:${HOME}/.bin:${PATH}"' >> $BASH_ENV
             echo 'export CIRCLE_ARTIFACTS="/tmp"' >> $BASH_ENV
       - checkout
@@ -314,5 +301,6 @@ commands:
       - run:
           name: Configure environment variables
           command: |
+            echo 'export RUST_LOG=info' >> $BASH_ENV
             echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
             source $BASH_ENV

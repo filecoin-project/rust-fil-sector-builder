@@ -382,30 +382,6 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     raw_ptr(response)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_is_param_cache_hydrated(
-    ptr: *mut SectorBuilder,
-) -> *mut responses::IsParamCacheHydratedResponse {
-    init_log();
-    assert!(!ptr.is_null(), "invalid pointer");
-    let sector_builder = &*ptr;
-
-    let mut response = responses::IsParamCacheHydratedResponse::default();
-
-    match sector_builder.is_param_cache_hydrated() {
-        Ok(_) => {
-            response.is_hydrated = true;
-        }
-        Err(ref err) => {
-            let (code, ptr) = err_code_and_msg(err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
-
-    raw_ptr(response)
-}
-
 /// Unseals and returns the bytes associated with the provided piece key.
 ///
 #[no_mangle]
@@ -558,13 +534,6 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_get_staged_sectors_response(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_init_sector_builder_response(
     ptr: *mut responses::InitSectorBuilderResponse,
-) {
-    let _ = Box::from_raw(ptr);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_is_param_cache_hydrated_response(
-    ptr: *mut responses::IsParamCacheHydratedResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

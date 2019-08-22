@@ -6,4 +6,4 @@ members = [
 ]
 
 [patch.crates-io]
-filecoin-proofs-ffi = { git = 'https://github.com/filecoin-project/rust-fil-proofs-ffi.git', rev = 'c3c441816ec9e1114f582cb942ed6c961c14efb1' }
+filecoin-proofs-ffi = { git = 'https://github.com/filecoin-project/rust-fil-proofs-ffi.git', rev = '236a9811a4f3b0a970b8e650fd4e05cbbace367f' }

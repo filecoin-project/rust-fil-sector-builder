@@ -295,7 +295,9 @@ workflows:
             - cargo_fetch
           filters:
             branches:
-              only: master
+              only:
+                - master
+                - features/include-filecoin-binaries-12
 
 commands:
   linux_configure_env:

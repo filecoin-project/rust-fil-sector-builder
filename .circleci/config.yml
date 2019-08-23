@@ -287,7 +287,9 @@ workflows:
             - cargo_fetch
           filters:
             branches:
-              only: master
+              only:
+                - master
+                - features/include-filecoin-binaries-12
       - build_darwin_release:
           requires:
             - cargo_fetch

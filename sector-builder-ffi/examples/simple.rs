@@ -435,17 +435,19 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
             from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
-        let sealed_sector_replica_commitment: [u8; 32] = sealed_sector_metadata.comm_r;
-        // FIXME: for some reason bindgen generates *mut instead of *const.
-        let mut challenge_seed: [u8; 32] = [0; 32];
-        let faults = vec![];
 
         let sector_ids = vec![sealed_sector_metadata.sector_id];
 
+        let sealed_sector_replica_commitment: [u8; 32] = sealed_sector_metadata.comm_r;
+
+        let mut challenge_seed: [u8; 32] = [0; 32];
+
+        let faults = vec![];
+
         let resp = sector_builder_ffi_generate_post(
             sector_builder_b,
-            &sealed_sector_replica_commitment[0],
-            32,
+            sealed_sector_replica_commitment.as_ptr(),
+            sealed_sector_replica_commitment.len(),
             &mut challenge_seed,
             faults.as_ptr(),
             faults.len(),
@@ -463,8 +465,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             sector_ids.len(),
             faults.as_ptr(),
             faults.len(),
-            &sealed_sector_replica_commitment[0],
-            32,
+            sealed_sector_replica_commitment.as_ptr(),
+            sealed_sector_replica_commitment.len(),
             (*resp).proof_ptr,
             (*resp).proof_len,
         );

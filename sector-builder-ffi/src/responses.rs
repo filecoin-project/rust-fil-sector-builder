@@ -36,11 +36,8 @@ pub enum FFISealStatus {
 pub struct GeneratePoStResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub faults_len: libc::size_t,
-    pub faults_ptr: *const u64,
-    pub flattened_proofs_len: libc::size_t,
-    pub flattened_proofs_ptr: *const u8,
-    pub proof_partitions: u8,
+    pub proof_len: libc::size_t,
+    pub proof_ptr: *const u8,
 }
 
 impl Default for GeneratePoStResponse {
@@ -48,11 +45,8 @@ impl Default for GeneratePoStResponse {
         GeneratePoStResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            faults_len: 0,
-            faults_ptr: ptr::null(),
-            flattened_proofs_len: 0,
-            flattened_proofs_ptr: ptr::null(),
-            proof_partitions: 0,
+            proof_len: 0,
+            proof_ptr: ptr::null(),
         }
     }
 }

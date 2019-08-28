@@ -6,8 +6,6 @@
 #[macro_use(defer)]
 extern crate scopeguard;
 
-include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
-
 use std::error::Error;
 use std::io::Write;
 use std::ptr;
@@ -24,6 +22,8 @@ use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
 use tempfile::{NamedTempFile, TempDir};
+
+include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 
 ///////////////////////////////////////////////////////////////////////////////
 // SectorBuilder lifecycle test
@@ -144,7 +144,6 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             sector_class: sector_builder_ffi_FFISectorClass {
                 sector_size: LIVE_SECTOR_SIZE,
                 porep_proof_partitions: 2,
-                post_proof_partitions: 1,
             },
             max_bytes: 1016 * 1024 * 256,
             first_piece_bytes: 400 * 1024 * 256,
@@ -157,7 +156,6 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             sector_class: sector_builder_ffi_FFISectorClass {
                 sector_size: TEST_SECTOR_SIZE,
                 porep_proof_partitions: 2,
-                post_proof_partitions: 1,
             },
             max_bytes: 1016,
             first_piece_bytes: 400,
@@ -356,7 +354,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
                 &mut (*resp).comm_d,
                 &mut (*resp).comm_r_star,
                 &mut u64_to_fr_safe(0),
-                &mut u64_to_fr_safe(124),
+                124,
                 (*resp).proof_ptr,
                 (*resp).proof_len,
             );
@@ -437,15 +435,22 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
             from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        let sector_ids = vec![sealed_sector_metadata.sector_id];
+
         let sealed_sector_replica_commitment: [u8; 32] = sealed_sector_metadata.comm_r;
-        // FIXME: for some reason bindgen generates *mut instead of *const.
+
         let mut challenge_seed: [u8; 32] = [0; 32];
+
+        let faults = vec![];
 
         let resp = sector_builder_ffi_generate_post(
             sector_builder_b,
-            &sealed_sector_replica_commitment[0],
-            32,
+            sealed_sector_replica_commitment.as_ptr(),
+            sealed_sector_replica_commitment.len(),
             &mut challenge_seed,
+            faults.as_ptr(),
+            faults.len(),
         );
         defer!(sector_builder_ffi_destroy_generate_post_response(resp));
 
@@ -455,14 +460,15 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
         let resp = sector_builder_ffi_verify_post(
             sizes.sector_class.sector_size,
-            sizes.sector_class.post_proof_partitions,
-            &sealed_sector_replica_commitment[0],
-            32,
             &mut challenge_seed,
-            (*resp).flattened_proofs_ptr,
-            (*resp).flattened_proofs_len,
-            (*resp).faults_ptr,
-            (*resp).faults_len,
+            sector_ids.as_ptr(),
+            sector_ids.len(),
+            faults.as_ptr(),
+            faults.len(),
+            sealed_sector_replica_commitment.as_ptr(),
+            sealed_sector_replica_commitment.len(),
+            (*resp).proof_ptr,
+            (*resp).proof_len,
         );
         defer!(sector_builder_ffi_destroy_verify_post_response(resp));
 

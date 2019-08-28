@@ -267,9 +267,7 @@ mod tests {
         let seal_output = h.seal_output;
 
         let comm_r = seal_output.comm_r;
-        let comm_rs = vec![comm_r, comm_r];
         let challenge_seed = rng.gen();
-        let faults = vec![SectorId::from(0); 0];
 
         let sealed_sector_path = h
             .store
@@ -279,7 +277,7 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let mut private_replica_info = vec![
+        let private_replica_info = vec![
             (
                 SectorId::from(0),
                 PrivateReplicaInfo::new(sealed_sector_path.clone(), comm_r),
@@ -292,7 +290,7 @@ mod tests {
         .into_iter()
         .collect();
 
-        let mut public_replica_info = vec![
+        let public_replica_info = vec![
             (SectorId::from(0), PublicReplicaInfo::new(comm_r)),
             (SectorId::from(1), PublicReplicaInfo::new(comm_r)),
         ]

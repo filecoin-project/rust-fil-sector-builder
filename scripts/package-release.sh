@@ -19,10 +19,12 @@ find . -type f -name sector_builder_ffi.h -exec cp -- "{}" $TAR_PATH/include/ \;
 find . -type f -name libsector_builder_ffi.a -exec cp -- "{}" $TAR_PATH/lib/ \;
 find . -type f -name sector_builder_ffi.pc -exec cp -- "{}" $TAR_PATH/lib/pkgconfig/ \;
 
-# TODO https://github.com/filecoin-project/rust-fil-sector-builder/issues/39
-FP_VERSION=$(cat Cargo.lock | grep 'name = "filecoin-proofs"' -A1 | tail -n1 | cut -d' ' -f3 | tr -d '"')
-
-cargo install --version $FP_VERSION filecoin-proofs --root $TAR_PATH --bin paramfetch
+cargo install filecoin-proofs \
+  --bin paramfetch \
+  --force \
+  --git=https://github.com/filecoin-project/rust-fil-proofs.git \
+  --branch=master \
+  --root $TAR_PATH
 
 pushd $TAR_PATH
 

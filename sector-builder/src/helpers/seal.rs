@@ -26,7 +26,7 @@ pub fn seal(
     // Run the FPS seal operation. This call will block for a long time, so make
     // sure you're not holding any locks.
 
-    info!("seal: start");
+    info!("seal: start (sector_id={})", staged_sector.sector_id);
 
     let staged_sector_path = sector_store
         .manager()
@@ -53,7 +53,7 @@ pub fn seal(
             .as_slice(),
     )?;
 
-    info!("seal: finish");
+    info!("seal: finish (sector_id={})", staged_sector.sector_id);
 
     // generate checksum
     let blake2b_checksum = blake2b_checksum(&sealed_sector_path)?.as_ref().to_vec();

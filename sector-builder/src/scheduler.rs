@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
@@ -8,6 +9,7 @@ use storage_proofs::sector::SectorId;
 
 use crate::builder::WrappedKeyValueStore;
 use crate::error::{err_piecenotfound, err_unrecov, Result};
+use crate::helpers::compute_checksum::compute_checksum;
 use crate::helpers::{
     add_piece, get_seal_status, get_sectors_ready_for_sealing, load_snapshot, persist_snapshot,
     SnapshotKey,
@@ -17,7 +19,10 @@ use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
 use crate::sealer::SealerInput;
 use crate::state::{SectorBuilderState, StagedState};
 use crate::store::SectorStore;
-use crate::{GetSealedSectorResult, PaddedBytesAmount, SecondsSinceEpoch, UnpaddedBytesAmount};
+use crate::{
+    GetSealedSectorResult, PaddedBytesAmount, SealedSectorHealth, SecondsSinceEpoch,
+    UnpaddedBytesAmount,
+};
 
 const FATAL_NOLOAD: &str = "could not load snapshot";
 const FATAL_NORECV: &str = "could not receive task";
@@ -272,15 +277,63 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
     // Produces a vector containing metadata for all sealed sectors that this
     // SectorBuilder knows about. Includes sector health-information on request.
-    pub fn get_sealed_sectors(&self, _check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
-        Ok(self
+    pub fn get_sealed_sectors(&self, check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
+        use rayon::prelude::*;
+
+        if !check_health {
+            return Ok(self
+                .state
+                .sealed
+                .sectors
+                .values()
+                .cloned()
+                .map(GetSealedSectorResult::MetadataOnly)
+                .collect());
+        }
+
+        let with_path: Vec<(PathBuf, &SealedSectorMetadata)> = self
             .state
             .sealed
             .sectors
             .values()
+            .map(|meta| {
+                let pbuf = self
+                    .sector_store
+                    .manager()
+                    .sealed_sector_path(&meta.sector_access);
+
+                (pbuf, meta)
+            })
+            .collect();
+
+        // compute sector health in parallel using workers from rayon global
+        // thread pool
+        with_path
+            .par_iter()
             .cloned()
-            .map(GetSealedSectorResult::MetadataOnly)
-            .collect())
+            .map(|(pbuf, meta)| {
+                // compare lengths
+                if std::fs::metadata(&pbuf)?.len() != meta.len {
+                    return Ok(GetSealedSectorResult::WithHealth(
+                        SealedSectorHealth::ErrorInvalidLength,
+                        meta.clone(),
+                    ));
+                }
+
+                // compare checksums
+                if compute_checksum(&pbuf)?.as_bytes() != meta.blake2b_checksum.as_slice() {
+                    return Ok(GetSealedSectorResult::WithHealth(
+                        SealedSectorHealth::ErrorInvalidChecksum,
+                        meta.clone(),
+                    ));
+                }
+
+                Ok(GetSealedSectorResult::WithHealth(
+                    SealedSectorHealth::Ok,
+                    meta.clone(),
+                ))
+            })
+            .collect()
     }
 
     // Produces a vector containing metadata for all staged sectors that this

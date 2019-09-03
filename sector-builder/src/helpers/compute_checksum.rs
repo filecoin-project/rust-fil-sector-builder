@@ -1,7 +1,7 @@
 use std::convert::AsRef;
 
-/// Calculates the checksum of a given file.
-pub fn blake2b_checksum(path: impl AsRef<std::path::Path>) -> std::io::Result<blake2b_simd::Hash> {
+/// Calculates the BLAKE2b checksum of a given file.
+pub fn compute_checksum(path: impl AsRef<std::path::Path>) -> std::io::Result<blake2b_simd::Hash> {
     let mut hasher = blake2b_simd::blake2bp::State::new();
     let f = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(f);

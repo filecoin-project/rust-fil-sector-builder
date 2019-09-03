@@ -6,13 +6,14 @@ pub fn get_sealed_sector_health<T: AsRef<Path>>(
     sealed_sector_path: T,
     meta: &SealedSectorMetadata,
 ) -> Result<SealedSectorHealth, failure::Error> {
-    // compare lengths
     let result = std::fs::metadata(&sealed_sector_path);
 
+    // ensure that the file still exists
     if result.is_err() {
         return Ok(SealedSectorHealth::ErrorMissing);
     }
 
+    // compare lengths
     if result?.len() != meta.len {
         return Ok(SealedSectorHealth::ErrorInvalidLength);
     }

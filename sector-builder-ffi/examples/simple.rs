@@ -321,12 +321,10 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
                     return;
                 }
 
-                if (*resp).seal_status_code == sector_builder_ffi_FFISealStatus_Failed {
-                    panic!(
-                        "Failed to seal sector {}",
-                        c_str_to_rust_str((*resp).seal_error_msg)
-                    );
-                }
+                assert_ne!(
+                    (*resp).seal_status_code,
+                    sector_builder_ffi_FFISealStatus_Failed
+                );
 
                 if (*resp).seal_status_code == sector_builder_ffi_FFISealStatus_Sealed {
                     let _ = result_tx.send((*resp).sector_id).unwrap();

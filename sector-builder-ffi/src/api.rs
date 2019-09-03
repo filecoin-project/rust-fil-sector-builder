@@ -170,11 +170,12 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
     ptr: *mut SectorBuilder,
+    check_health: bool,
 ) -> *mut responses::GetSealedSectorsResponse {
     init_log();
     let mut response: responses::GetSealedSectorsResponse = Default::default();
 
-    match (*ptr).get_sealed_sectors(false) {
+    match (*ptr).get_sealed_sectors(check_health) {
         Ok(sealed_sectors) => {
             response.status_code = FCPResponseStatus::FCPNoError;
 

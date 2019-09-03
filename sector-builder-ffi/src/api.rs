@@ -184,7 +184,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                 .map(|wrapped_meta| {
                     let (ffi_health, meta) = match wrapped_meta {
                         GetSealedSectorResult::WithHealth(h, m) => ((*h).into(), m),
-                        GetSealedSectorResult::MetadataOnly(m) => {
+                        GetSealedSectorResult::WithoutHealth(m) => {
                             (FFISealedSectorHealth::Unknown, m)
                         }
                     };

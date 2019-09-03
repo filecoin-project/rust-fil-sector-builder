@@ -52,7 +52,7 @@ pub enum SealedSectorHealth {
 #[derive(Clone, Debug, PartialEq)]
 pub enum GetSealedSectorResult {
     WithHealth(SealedSectorHealth, SealedSectorMetadata),
-    MetadataOnly(SealedSectorMetadata),
+    WithoutHealth(SealedSectorMetadata),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

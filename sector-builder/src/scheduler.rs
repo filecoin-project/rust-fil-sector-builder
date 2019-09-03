@@ -284,7 +284,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                 .sectors
                 .values()
                 .cloned()
-                .map(GetSealedSectorResult::MetadataOnly)
+                .map(GetSealedSectorResult::WithoutHealth)
                 .collect());
         }
 

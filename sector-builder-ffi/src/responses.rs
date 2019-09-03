@@ -10,6 +10,26 @@ use sector_builder::{SectorBuilder, SectorBuilderErr, SectorManagerErr};
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]
+pub enum FFISealedSectorStatus {
+    Ok = 0,
+    ErrorInvalidChecksum = 1,
+    ErrorInvalidLength = 2,
+    ErrorMissing = 3,
+}
+
+//impl From<SealedSectorStatus> for FFISealedSectorStatus {
+//    fn from(status: SealedSectorStatus) -> Self {
+//        match status {
+//            SectorStatus::Ok => FFISealedSectorStatus::Ok,
+//            SealedSectorStatus::ErrorInvalidChecksum => FFISealedSectorStatus::ErrorInvalidChecksum,
+//            SealedSectorStatus::ErrorInvalidLength => FFISealedSectorStatus::ErrorInvalidLength,
+//            SealedSectorStatus::ErrorMissing => FFISealedSectorStatus::ErrorMissing,
+//        }
+//    }
+//}
+
+#[repr(C)]
+#[derive(PartialEq, Debug)]
 pub enum FCPResponseStatus {
     // Don't use FCPSuccess, since that complicates description of 'successful' verification.
     FCPNoError = 0,
@@ -259,6 +279,7 @@ pub struct FFISealedSectorMetadata {
     pub proofs_ptr: *const u8,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
+    pub status: FFISealedSectorStatus,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -12,6 +12,7 @@ use sector_builder::{PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder
 
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
+    FFISealedSectorStatus,
 };
 
 #[repr(C)]
@@ -196,6 +197,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                         proofs_ptr: snark_proof.as_ptr(),
                         sector_access: rust_str_to_c_str(meta.sector_access.clone()),
                         sector_id: u64::from(meta.sector_id),
+                        status: FFISealedSectorStatus::Ok,
                     };
 
                     mem::forget(snark_proof);

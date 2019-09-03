@@ -17,7 +17,7 @@ use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
 use crate::sealer::SealerInput;
 use crate::state::{SectorBuilderState, StagedState};
 use crate::store::SectorStore;
-use crate::{PaddedBytesAmount, SecondsSinceEpoch, UnpaddedBytesAmount};
+use crate::{GetSealedSectorResult, PaddedBytesAmount, SecondsSinceEpoch, UnpaddedBytesAmount};
 
 const FATAL_NOLOAD: &str = "could not load snapshot";
 const FATAL_NORECV: &str = "could not receive task";
@@ -40,7 +40,10 @@ pub enum Request {
         SecondsSinceEpoch,
         mpsc::SyncSender<Result<SectorId>>,
     ),
-    GetSealedSectors(mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>),
+    GetSealedSectors(
+        bool, // check health
+        mpsc::SyncSender<Result<Vec<GetSealedSectorResult>>>,
+    ),
     GetStagedSectors(mpsc::SyncSender<Result<Vec<StagedSectorMetadata>>>),
     GetSealStatus(SectorId, mpsc::SyncSender<Result<SealStatus>>),
     GeneratePoSt(
@@ -114,8 +117,9 @@ impl Scheduler {
                         tx.send(m.get_seal_status(sector_id)).expects(FATAL_NOSEND);
                     }
                     Request::RetrievePiece(piece_key, tx) => m.retrieve_piece(piece_key, tx),
-                    Request::GetSealedSectors(tx) => {
-                        tx.send(m.get_sealed_sectors()).expects(FATAL_NOSEND);
+                    Request::GetSealedSectors(check_health, tx) => {
+                        tx.send(m.get_sealed_sectors(check_health))
+                            .expects(FATAL_NOSEND);
                     }
                     Request::GetStagedSectors(tx) => {
                         tx.send(m.get_staged_sectors()).expect(FATAL_NOSEND);
@@ -267,9 +271,16 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     }
 
     // Produces a vector containing metadata for all sealed sectors that this
-    // SectorBuilder knows about.
-    pub fn get_sealed_sectors(&self) -> Result<Vec<SealedSectorMetadata>> {
-        Ok(self.state.sealed.sectors.values().cloned().collect())
+    // SectorBuilder knows about. Includes sector health-information on request.
+    pub fn get_sealed_sectors(&self, _check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
+        Ok(self
+            .state
+            .sealed
+            .sectors
+            .values()
+            .cloned()
+            .map(GetSealedSectorResult::MetadataOnly)
+            .collect())
     }
 
     // Produces a vector containing metadata for all staged sectors that this

@@ -8,11 +8,13 @@ use libc;
 use once_cell::sync::OnceCell;
 use storage_proofs::sector::SectorId;
 
-use sector_builder::{PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder};
+use sector_builder::{
+    GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder,
+};
 
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
-    FFISealedSectorStatus,
+    FFISealedSectorHealth,
 };
 
 #[repr(C)]
@@ -172,13 +174,20 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
     init_log();
     let mut response: responses::GetSealedSectorsResponse = Default::default();
 
-    match (*ptr).get_sealed_sectors() {
+    match (*ptr).get_sealed_sectors(false) {
         Ok(sealed_sectors) => {
             response.status_code = FCPResponseStatus::FCPNoError;
 
             let sectors = sealed_sectors
                 .iter()
-                .map(|meta| {
+                .map(|wrapped_meta| {
+                    let (ffi_health, meta) = match wrapped_meta {
+                        GetSealedSectorResult::WithHealth(h, m) => ((*h).into(), m),
+                        GetSealedSectorResult::MetadataOnly(m) => {
+                            (FFISealedSectorHealth::Unknown, m)
+                        }
+                    };
+
                     let pieces = meta
                         .pieces
                         .iter()
@@ -197,7 +206,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                         proofs_ptr: snark_proof.as_ptr(),
                         sector_access: rust_str_to_c_str(meta.sector_access.clone()),
                         sector_id: u64::from(meta.sector_id),
-                        status: FFISealedSectorStatus::Ok,
+                        health: ffi_health,
                     };
 
                     mem::forget(snark_proof);

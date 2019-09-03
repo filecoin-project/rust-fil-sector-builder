@@ -41,6 +41,20 @@ pub enum SealStatus {
     Sealing,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SealedSectorHealth {
+    Ok,
+    ErrorInvalidChecksum,
+    ErrorInvalidLength,
+    ErrorMissing,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum GetSealedSectorResult {
+    WithHealth(SealedSectorHealth, SealedSectorMetadata),
+    MetadataOnly(SealedSectorMetadata),
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct SecondsSinceEpoch(pub u64);
 

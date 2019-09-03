@@ -7,7 +7,13 @@ pub fn get_sealed_sector_health<T: AsRef<Path>>(
     meta: &SealedSectorMetadata,
 ) -> Result<SealedSectorHealth, failure::Error> {
     // compare lengths
-    if std::fs::metadata(&sealed_sector_path)?.len() != meta.len {
+    let result = std::fs::metadata(&sealed_sector_path);
+
+    if result.is_err() {
+        return Ok(SealedSectorHealth::ErrorMissing);
+    }
+
+    if result?.len() != meta.len {
         return Ok(SealedSectorHealth::ErrorInvalidLength);
     }
 

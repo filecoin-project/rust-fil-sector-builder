@@ -9,20 +9,17 @@ use storage_proofs::sector::SectorId;
 
 use crate::builder::WrappedKeyValueStore;
 use crate::error::{err_piecenotfound, err_unrecov, Result};
-use crate::helpers::compute_checksum::compute_checksum;
 use crate::helpers::{
-    add_piece, get_seal_status, get_sectors_ready_for_sealing, load_snapshot, persist_snapshot,
-    SnapshotKey,
+    add_piece, get_seal_status, get_sealed_sector_health, get_sectors_ready_for_sealing,
+    load_snapshot, persist_snapshot, SnapshotKey,
 };
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
 use crate::sealer::SealerInput;
 use crate::state::{SectorBuilderState, StagedState};
 use crate::store::SectorStore;
-use crate::{
-    GetSealedSectorResult, PaddedBytesAmount, SealedSectorHealth, SecondsSinceEpoch,
-    UnpaddedBytesAmount,
-};
+use crate::GetSealedSectorResult::WithHealth;
+use crate::{GetSealedSectorResult, PaddedBytesAmount, SecondsSinceEpoch, UnpaddedBytesAmount};
 
 const FATAL_NOLOAD: &str = "could not load snapshot";
 const FATAL_NORECV: &str = "could not receive task";
@@ -291,11 +288,12 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                 .collect());
         }
 
-        let with_path: Vec<(PathBuf, &SealedSectorMetadata)> = self
+        let with_path: Vec<(PathBuf, SealedSectorMetadata)> = self
             .state
             .sealed
             .sectors
             .values()
+            .cloned()
             .map(|meta| {
                 let pbuf = self
                     .sector_store
@@ -312,26 +310,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             .par_iter()
             .cloned()
             .map(|(pbuf, meta)| {
-                // compare lengths
-                if std::fs::metadata(&pbuf)?.len() != meta.len {
-                    return Ok(GetSealedSectorResult::WithHealth(
-                        SealedSectorHealth::ErrorInvalidLength,
-                        meta.clone(),
-                    ));
-                }
-
-                // compare checksums
-                if compute_checksum(&pbuf)?.as_bytes() != meta.blake2b_checksum.as_slice() {
-                    return Ok(GetSealedSectorResult::WithHealth(
-                        SealedSectorHealth::ErrorInvalidChecksum,
-                        meta.clone(),
-                    ));
-                }
-
-                Ok(GetSealedSectorResult::WithHealth(
-                    SealedSectorHealth::Ok,
-                    meta.clone(),
-                ))
+                let health = get_sealed_sector_health(&pbuf, &meta)?;
+                Ok(WithHealth(health, meta))
             })
             .collect()
     }

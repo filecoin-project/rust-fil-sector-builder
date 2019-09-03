@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{env, fs};
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use ffi_toolkit::{c_str_to_rust_str, free_c_str, rust_str_to_c_str};
+use ffi_toolkit::{c_str_to_pbuf, c_str_to_rust_str, free_c_str, rust_str_to_c_str};
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
@@ -387,16 +387,72 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         assert_eq!(1, (*resp).sectors_len);
+    }
+
+    // get sealed sectors w/health checks
+    {
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
             from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
-        if sealed_sector_metadata.health != sector_builder_ffi_FFISealedSectorHealth_Ok {
-            panic!(
-                "sector with id={} is unhealthy for reason={:?}",
-                sealed_sector_metadata.sector_id, sealed_sector_metadata.health
-            );
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_Ok
+        );
+
+        let sealed_sector_path = sealed_dir_b
+            .path()
+            .join(c_str_to_pbuf(sealed_sector_metadata.sector_access));
+
+        let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
+
+        // change 1 byte
+        let mut new_content = content.clone();
+        new_content[0] = new_content[0].wrapping_add(1);
+
+        // write back
+        std::fs::write(&sealed_sector_path, &new_content).expect("failed to write fake sector");
+
+        // invalid checksum
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
         }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
+        );
+
+        // restore
+        std::fs::write(&sealed_sector_path, &content).expect("failed to restore sector");
+
+        // checksum is now valid
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_Ok
+        );
     }
 
     // verify pips

@@ -277,23 +277,15 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     pub fn get_sealed_sectors(&self, check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
         use rayon::prelude::*;
 
+        let sectors_iter = self.state.sealed.sectors.values().cloned();
+
         if !check_health {
-            return Ok(self
-                .state
-                .sealed
-                .sectors
-                .values()
-                .cloned()
+            return Ok(sectors_iter
                 .map(GetSealedSectorResult::WithoutHealth)
                 .collect());
         }
 
-        let with_path: Vec<(PathBuf, SealedSectorMetadata)> = self
-            .state
-            .sealed
-            .sectors
-            .values()
-            .cloned()
+        let with_path: Vec<(PathBuf, SealedSectorMetadata)> = sectors_iter
             .map(|meta| {
                 let pbuf = self
                     .sector_store

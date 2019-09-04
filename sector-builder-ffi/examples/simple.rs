@@ -37,6 +37,29 @@ struct TestConfiguration {
 
 /// wrappers for FFI calls
 
+unsafe fn verify_seal(
+    sector_size: u64,
+    mut sealed_sector: sector_builder_ffi_FFISealedSectorMetadata,
+) -> bool {
+    let resp = sector_builder_ffi_verify_seal(
+        sector_size,
+        &mut sealed_sector.comm_r,
+        &mut sealed_sector.comm_d,
+        &mut sealed_sector.comm_r_star,
+        &mut u64_to_fr_safe(0),
+        124,
+        sealed_sector.proofs_ptr,
+        sealed_sector.proofs_len,
+    );
+    defer!(sector_builder_ffi_destroy_verify_seal_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    (*resp).is_valid
+}
+
 unsafe fn get_sealed_sectors(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     with_health: bool,
@@ -369,30 +392,15 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // get sealed sector and verify the PoRep proof
     {
-        let mut sealed_sector = get_sealed_sectors(sector_builder_b, false)
+        let sealed_sector = get_sealed_sectors(sector_builder_b, false)
             .into_iter()
             .find(|ss| ss.sector_id == 124)
             .expect("no sealed sector with id 124");
 
-        {
-            let resp2 = sector_builder_ffi_verify_seal(
-                cfg.sector_class.sector_size,
-                &mut sealed_sector.comm_r,
-                &mut sealed_sector.comm_d,
-                &mut sealed_sector.comm_r_star,
-                &mut u64_to_fr_safe(0),
-                124,
-                sealed_sector.proofs_ptr,
-                sealed_sector.proofs_len,
-            );
-            defer!(sector_builder_ffi_destroy_verify_seal_response(resp2));
-
-            if (*resp2).status_code != 0 {
-                panic!("{}", c_str_to_rust_str((*resp2).error_msg))
-            }
-
-            assert!((*resp2).is_valid)
-        }
+        assert!(
+            verify_seal(cfg.sector_class.sector_size, sealed_sector),
+            "seal verification failed"
+        );
     }
 
     // get sealed sectors w/health checks

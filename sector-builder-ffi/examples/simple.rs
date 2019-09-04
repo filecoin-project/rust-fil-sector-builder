@@ -110,7 +110,7 @@ unsafe fn add_piece(
 }
 
 unsafe fn create_and_add_piece(
-    sector_builder: *mut sector_builder_ffi_SectorBuilder,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
     num_bytes_in_piece: usize,
 ) -> (String, Vec<u8>, u64) {
     let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
@@ -118,8 +118,61 @@ unsafe fn create_and_add_piece(
     (
         piece_key.clone(),
         piece_bytes.clone(),
-        add_piece(sector_builder, &piece_key, &piece_bytes, 5000000000),
+        add_piece(ptr, &piece_key, &piece_bytes, 5000000000),
     )
+}
+
+unsafe fn get_seal_status(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) -> sector_builder_ffi_FFISealStatus {
+    let resp = sector_builder_ffi_get_seal_status(ptr, sector_id);
+    defer!(sector_builder_ffi_destroy_get_seal_status_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    (*resp).seal_status_code.clone()
+}
+
+unsafe fn poll_for_sector_sealing_status(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    target_status: sector_builder_ffi_FFISealStatus,
+    max_wait_secs: u64,
+) -> () {
+    let (result_tx, result_rx) = mpsc::channel();
+    let (kill_tx, kill_rx) = mpsc::channel();
+
+    let atomic_ptr = AtomicPtr::new(ptr);
+
+    let _join_handle = thread::spawn(move || {
+        let sector_builder = atomic_ptr.into_inner();
+
+        loop {
+            match kill_rx.try_recv() {
+                Ok(_) => return,
+                _ => (),
+            };
+
+            if get_seal_status(sector_builder, sector_id) == target_status {
+                let _ = result_tx.send(sector_id).unwrap();
+            }
+
+            thread::sleep(Duration::from_millis(1000));
+        }
+    });
+
+    defer!({
+        let _ = kill_tx.send(true).unwrap();
+    });
+
+    let now_sealed_sector_id = result_rx
+        .recv_timeout(Duration::from_secs(max_wait_secs))
+        .unwrap();
+
+    assert_eq!(now_sealed_sector_id, 124);
 }
 
 unsafe fn create_sector_builder(
@@ -302,55 +355,13 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         (k, bs)
     };
 
-    // poll for sealed sector metadata through the FFI
-    {
-        let (result_tx, result_rx) = mpsc::channel();
-        let (kill_tx, kill_rx) = mpsc::channel();
-
-        let atomic_ptr = AtomicPtr::new(sector_builder_b);
-
-        let _join_handle = thread::spawn(move || {
-            let sector_builder = atomic_ptr.into_inner();
-
-            loop {
-                match kill_rx.try_recv() {
-                    Ok(_) => return,
-                    _ => (),
-                };
-
-                let resp = sector_builder_ffi_get_seal_status(sector_builder, 124);
-                defer!(sector_builder_ffi_destroy_get_seal_status_response(resp));
-
-                if (*resp).status_code != 0 {
-                    return;
-                }
-
-                assert_ne!(
-                    (*resp).seal_status_code,
-                    sector_builder_ffi_FFISealStatus_Failed
-                );
-
-                if (*resp).seal_status_code == sector_builder_ffi_FFISealStatus_Sealed {
-                    let _ = result_tx.send((*resp).sector_id).unwrap();
-                }
-
-                thread::sleep(Duration::from_millis(1000));
-            }
-        });
-
-        defer!({
-            let _ = kill_tx.send(true).unwrap();
-        });
-
-        // wait up to 5 minutes for sealing to complete
-        let now_sealed_sector_id = if use_live_store {
-            result_rx.recv().unwrap()
-        } else {
-            result_rx.recv_timeout(Duration::from_secs(300)).unwrap()
-        };
-
-        assert_eq!(now_sealed_sector_id, 124);
-    }
+    // block until the sector has been sealed
+    poll_for_sector_sealing_status(
+        sector_builder_b,
+        124,
+        sector_builder_ffi_FFISealStatus_Sealed,
+        if use_live_store { 60 * 120 } else { 60 * 5 },
+    );
 
     // get sealed sector and verify the PoRep proof
     {

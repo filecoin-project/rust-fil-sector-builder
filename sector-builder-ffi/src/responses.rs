@@ -6,7 +6,28 @@ use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
 use ffi_toolkit::free_c_str;
 use libc;
-use sector_builder::{SectorBuilder, SectorBuilderErr, SectorManagerErr};
+use sector_builder::{SealedSectorHealth, SectorBuilder, SectorBuilderErr, SectorManagerErr};
+
+#[repr(C)]
+#[derive(PartialEq, Debug)]
+pub enum FFISealedSectorHealth {
+    Unknown = 0,
+    Ok = 1,
+    ErrorInvalidChecksum = 2,
+    ErrorInvalidLength = 3,
+    ErrorMissing = 4,
+}
+
+impl From<SealedSectorHealth> for FFISealedSectorHealth {
+    fn from(status: SealedSectorHealth) -> Self {
+        match status {
+            SealedSectorHealth::Ok => FFISealedSectorHealth::Ok,
+            SealedSectorHealth::ErrorInvalidChecksum => FFISealedSectorHealth::ErrorInvalidChecksum,
+            SealedSectorHealth::ErrorInvalidLength => FFISealedSectorHealth::ErrorInvalidLength,
+            SealedSectorHealth::ErrorMissing => FFISealedSectorHealth::ErrorMissing,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]
@@ -259,6 +280,7 @@ pub struct FFISealedSectorMetadata {
     pub proofs_ptr: *const u8,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
+    pub health: FFISealedSectorHealth,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{env, fs};
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use ffi_toolkit::{c_str_to_rust_str, free_c_str, rust_str_to_c_str};
+use ffi_toolkit::{c_str_to_pbuf, c_str_to_rust_str, free_c_str, rust_str_to_c_str};
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
@@ -86,6 +86,7 @@ unsafe fn create_sector_builder(
     prover_id: [u8; 31],
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
+    max_num_staged_sectors: u8,
 ) -> (*mut sector_builder_ffi_SectorBuilder, usize) {
     let mut prover_id: [u8; 31] = prover_id;
 
@@ -106,7 +107,7 @@ unsafe fn create_sector_builder(
         &mut prover_id,
         c_sealed_dir,
         c_staging_dir,
-        2,
+        max_num_staged_sectors,
     );
     defer!(sector_builder_ffi_destroy_init_sector_builder_response(
         resp
@@ -122,13 +123,14 @@ unsafe fn create_sector_builder(
     )
 }
 
-struct ConfigurableSizes {
+struct TestConfiguration {
     first_piece_bytes: usize,
     max_bytes: usize,
     second_piece_bytes: usize,
     sector_class: sector_builder_ffi_FFISectorClass,
     third_piece_bytes: usize,
     fourth_piece_bytes: usize,
+    max_num_staged_sectors: u8,
 }
 
 unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn Error>> {
@@ -139,8 +141,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     let sealed_dir_a = tempfile::tempdir().unwrap();
     let sealed_dir_b = tempfile::tempdir().unwrap();
 
-    let sizes = if use_live_store {
-        ConfigurableSizes {
+    let cfg = if use_live_store {
+        TestConfiguration {
             sector_class: sector_builder_ffi_FFISectorClass {
                 sector_size: LIVE_SECTOR_SIZE,
                 porep_proof_partitions: 2,
@@ -150,9 +152,10 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             second_piece_bytes: 200 * 1024 * 256,
             third_piece_bytes: 500 * 1024 * 256,
             fourth_piece_bytes: 200 * 1024 * 256,
+            max_num_staged_sectors: 2,
         }
     } else {
-        ConfigurableSizes {
+        TestConfiguration {
             sector_class: sector_builder_ffi_FFISectorClass {
                 sector_size: TEST_SECTOR_SIZE,
                 porep_proof_partitions: 2,
@@ -162,6 +165,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             second_piece_bytes: 200,
             third_piece_bytes: 500,
             fourth_piece_bytes: 200,
+            max_num_staged_sectors: 2,
         }
     };
 
@@ -171,21 +175,22 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         &sealed_dir_a,
         u64_to_fr_safe(0),
         123,
-        sizes.sector_class,
+        cfg.sector_class,
+        cfg.max_num_staged_sectors,
     );
 
     // TODO: Replace the hard-coded byte amounts with values computed
     // from whatever was retrieved from the SectorBuilder.
-    if max_bytes != sizes.max_bytes {
+    if max_bytes != cfg.max_bytes {
         panic!(
             "test assumes the wrong number of bytes (expected: {}, actual: {})",
-            sizes.max_bytes, max_bytes
+            cfg.max_bytes, max_bytes
         );
     }
 
     // verify that we have neither sealed nor staged sectors yet
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_a);
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_a, false);
         defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
 
         if (*resp).status_code != 0 {
@@ -206,7 +211,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // add first piece, which lazily provisions a new staged sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, sizes.first_piece_bytes);
+        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.first_piece_bytes);
         defer!(sector_builder_ffi_destroy_add_piece_response(resp));
 
         if (*resp).status_code != 0 {
@@ -218,7 +223,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // add second piece, which fits into existing staged sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, sizes.second_piece_bytes);
+        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.second_piece_bytes);
         defer!(sector_builder_ffi_destroy_add_piece_response(resp));
 
         if (*resp).status_code != 0 {
@@ -230,7 +235,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // add third piece, which won't fit into existing staging sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, sizes.third_piece_bytes);
+        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.third_piece_bytes);
         defer!(sector_builder_ffi_destroy_add_piece_response(resp));
 
         if (*resp).status_code != 0 {
@@ -278,14 +283,15 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         &sealed_dir_b,
         u64_to_fr_safe(0),
         123,
-        sizes.sector_class,
+        cfg.sector_class,
+        cfg.max_num_staged_sectors,
     );
     defer!(sector_builder_ffi_destroy_sector_builder(sector_builder_b));
 
     // add fourth piece that will trigger sealing in the first sector
     let (bytes_in, piece_key) = {
         let (piece_bytes, piece_key, resp) =
-            create_and_add_piece(sector_builder_b, sizes.fourth_piece_bytes);
+            create_and_add_piece(sector_builder_b, cfg.fourth_piece_bytes);
         defer!(sector_builder_ffi_destroy_add_piece_response(resp));
 
         if (*resp).status_code != 0 {
@@ -321,6 +327,11 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
                     return;
                 }
 
+                assert_ne!(
+                    (*resp).seal_status_code,
+                    sector_builder_ffi_FFISealStatus_Failed
+                );
+
                 if (*resp).seal_status_code == sector_builder_ffi_FFISealStatus_Sealed {
                     let _ = result_tx.send((*resp).sector_id).unwrap();
                 }
@@ -349,7 +360,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
         {
             let resp2 = sector_builder_ffi_verify_seal(
-                sizes.sector_class.sector_size,
+                cfg.sector_class.sector_size,
                 &mut (*resp).comm_r,
                 &mut (*resp).comm_d,
                 &mut (*resp).comm_r_star,
@@ -372,7 +383,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // get sealed sectors - we should have just one
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
         defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
 
         if (*resp).status_code != 0 {
@@ -382,9 +393,75 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         assert_eq!(1, (*resp).sectors_len);
     }
 
+    // get sealed sectors w/health checks
+    {
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_Ok
+        );
+
+        let sealed_sector_path = sealed_dir_b
+            .path()
+            .join(c_str_to_pbuf(sealed_sector_metadata.sector_access));
+
+        let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
+
+        // change 1 byte
+        let mut new_content = content.clone();
+        new_content[0] = new_content[0].wrapping_add(1);
+
+        // write back
+        std::fs::write(&sealed_sector_path, &new_content).expect("failed to write fake sector");
+
+        // invalid checksum
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
+        );
+
+        // restore
+        std::fs::write(&sealed_sector_path, &content).expect("failed to restore sector");
+
+        // checksum is now valid
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
+        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
+            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+
+        assert_eq!(
+            sealed_sector_metadata.health,
+            sector_builder_ffi_FFISealedSectorHealth_Ok
+        );
+    }
+
     // verify pips
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
         defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
 
         if (*resp).status_code != 0 {
@@ -412,7 +489,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
                 piece.piece_inclusion_proof_ptr,
                 piece.piece_inclusion_proof_len,
                 piece.num_bytes,
-                sizes.sector_class.sector_size,
+                cfg.sector_class.sector_size,
             );
             defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
 
@@ -426,7 +503,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
         defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
 
         if (*resp).status_code != 0 {
@@ -459,7 +536,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let resp = sector_builder_ffi_verify_post(
-            sizes.sector_class.sector_size,
+            cfg.sector_class.sector_size,
             &mut challenge_seed,
             sector_ids.as_ptr(),
             sector_ids.len(),
@@ -504,7 +581,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     // verify that the comm_p of the fourth piece generated by sealing matches
     // the comm_p generated directly with its bytes written to a piece file
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b);
+        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
         defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
 
         if (*resp).status_code != 0 {

@@ -77,13 +77,13 @@ unsafe fn get_staged_sectors(
     slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
 }
 
-unsafe fn create_and_add_piece(
-    sector_builder: *mut sector_builder_ffi_SectorBuilder,
-    num_bytes_in_piece: usize,
-) -> (Vec<u8>, String, *mut sector_builder_ffi_AddPieceResponse) {
-    let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
-
-    let c_piece_key = rust_str_to_c_str(piece_key.clone());
+unsafe fn add_piece(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    piece_key: &str,
+    piece_bytes: &[u8],
+    store_until_utc_secs: u64,
+) -> u64 {
+    let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
     // write piece bytes to a temporary file
@@ -93,16 +93,32 @@ unsafe fn create_and_add_piece(
     let c_piece_path = rust_str_to_c_str(p);
     defer!(free_c_str(c_piece_path));
 
+    let resp = sector_builder_ffi_add_piece(
+        ptr,
+        c_piece_key,
+        piece_bytes.len() as u64,
+        c_piece_path,
+        store_until_utc_secs,
+    );
+    defer!(sector_builder_ffi_destroy_add_piece_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    (*resp).sector_id.clone()
+}
+
+unsafe fn create_and_add_piece(
+    sector_builder: *mut sector_builder_ffi_SectorBuilder,
+    num_bytes_in_piece: usize,
+) -> (String, Vec<u8>, u64) {
+    let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
+
     (
-        piece_bytes.clone(),
         piece_key.clone(),
-        sector_builder_ffi_add_piece(
-            sector_builder,
-            c_piece_key,
-            piece_bytes.len() as u64,
-            c_piece_path,
-            5000000000,
-        ),
+        piece_bytes.clone(),
+        add_piece(sector_builder, &piece_key, &piece_bytes, 5000000000),
     )
 }
 
@@ -226,39 +242,20 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // add first piece, which lazily provisions a new staged sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.first_piece_bytes);
-        defer!(sector_builder_ffi_destroy_add_piece_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(124, (*resp).sector_id);
+        let (_, _, sector_id) = create_and_add_piece(sector_builder_a, cfg.first_piece_bytes);
+        assert_eq!(124, sector_id);
     }
 
     // add second piece, which fits into existing staged sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.second_piece_bytes);
-        defer!(sector_builder_ffi_destroy_add_piece_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(124, (*resp).sector_id);
+        let (_, _, sector_id) = create_and_add_piece(sector_builder_a, cfg.second_piece_bytes);
+        assert_eq!(124, sector_id);
     }
 
     // add third piece, which won't fit into existing staging sector
     {
-        let (_, _, resp) = create_and_add_piece(sector_builder_a, cfg.third_piece_bytes);
-        defer!(sector_builder_ffi_destroy_add_piece_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        // note that the sector id changed here
-        assert_eq!(125, (*resp).sector_id);
+        let (_, _, sector_id) = create_and_add_piece(sector_builder_a, cfg.third_piece_bytes);
+        assert_eq!(125, sector_id);
     }
 
     // get staged sector metadata and verify that we've now got two staged
@@ -304,19 +301,11 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     defer!(sector_builder_ffi_destroy_sector_builder(sector_builder_b));
 
     // add fourth piece that will trigger sealing in the first sector
-    let (bytes_in, piece_key) = {
-        let (piece_bytes, piece_key, resp) =
-            create_and_add_piece(sector_builder_b, cfg.fourth_piece_bytes);
-        defer!(sector_builder_ffi_destroy_add_piece_response(resp));
+    let (piece_key, bytes_in) = {
+        let (k, bs, sector_id) = create_and_add_piece(sector_builder_b, cfg.fourth_piece_bytes);
+        assert_eq!(124, sector_id);
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        // sector id changed again (piece wouldn't fit)
-        assert_eq!(124, (*resp).sector_id);
-
-        (piece_bytes, piece_key)
+        (k, bs)
     };
 
     // poll for sealed sector metadata through the FFI

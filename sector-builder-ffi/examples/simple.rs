@@ -9,7 +9,7 @@ extern crate scopeguard;
 use std::error::Error;
 use std::io::Write;
 use std::ptr;
-use std::slice::from_raw_parts;
+use std::slice;
 use std::sync::atomic::AtomicPtr;
 use std::sync::mpsc;
 use std::thread;
@@ -48,6 +48,33 @@ fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
         .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
         .collect();
     (key, bytes)
+}
+
+unsafe fn get_sealed_sectors(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    with_health: bool,
+) -> Vec<sector_builder_ffi_FFISealedSectorMetadata> {
+    let resp = sector_builder_ffi_get_sealed_sectors(ptr, with_health);
+    defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
+}
+
+unsafe fn get_staged_sectors(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+) -> Vec<sector_builder_ffi_FFIStagedSectorMetadata> {
+    let resp = sector_builder_ffi_get_staged_sectors(ptr);
+    defer!(sector_builder_ffi_destroy_get_staged_sectors_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
 }
 
 unsafe fn create_and_add_piece(
@@ -190,23 +217,11 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // verify that we have neither sealed nor staged sectors yet
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_a, false);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+        let sealed_sectors = get_sealed_sectors(sector_builder_a, false);
+        assert_eq!(0, sealed_sectors.len());
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(0, (*resp).sectors_len);
-
-        let resp = sector_builder_ffi_get_staged_sectors(sector_builder_a);
-        defer!(sector_builder_ffi_destroy_get_staged_sectors_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(0, (*resp).sectors_len);
+        let staged_sectors = get_staged_sectors(sector_builder_a);
+        assert_eq!(0, staged_sectors.len());
     }
 
     // add first piece, which lazily provisions a new staged sector
@@ -403,7 +418,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
         assert_eq!(
             sealed_sector_metadata.health,
@@ -432,7 +447,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
         assert_eq!(
             sealed_sector_metadata.health,
@@ -451,7 +466,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
         assert_eq!(
             sealed_sector_metadata.health,
@@ -471,11 +486,11 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         assert_eq!((*resp).sectors_len, 1);
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
         let mut comm_d = sealed_sector_metadata.comm_d.clone();
 
-        let pieces = from_raw_parts(
+        let pieces = slice::from_raw_parts(
             sealed_sector_metadata.pieces_ptr,
             sealed_sector_metadata.pieces_len,
         );
@@ -511,7 +526,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
         let sector_ids = vec![sealed_sector_metadata.sector_id];
 
@@ -589,9 +604,9 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         }
 
         let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
 
-        let pieces = from_raw_parts(
+        let pieces = slice::from_raw_parts(
             sealed_sector_metadata.pieces_ptr,
             sealed_sector_metadata.pieces_len,
         );

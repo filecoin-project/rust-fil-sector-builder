@@ -4,7 +4,7 @@ use filecoin_proofs::types::UnpaddedBytesAmount;
 use filecoin_proofs::{seal as seal_internal, SealOutput};
 
 use crate::error;
-use crate::helpers::compute_checksum;
+use crate::helpers::checksum::calculate_checksum;
 use crate::metadata::{PieceMetadata, SealedSectorMetadata, StagedSectorMetadata};
 use crate::store::SectorStore;
 
@@ -56,7 +56,7 @@ pub fn seal(
     info!("seal: finish (sector_id={})", staged_sector.sector_id);
 
     // generate checksum
-    let blake2b_checksum = compute_checksum(&sealed_sector_path)?.as_ref().to_vec();
+    let blake2b_checksum = calculate_checksum(&sealed_sector_path)?.as_ref().to_vec();
 
     // get number of bytes in sealed sector-file
     let len = std::fs::metadata(&sealed_sector_path)?.len();

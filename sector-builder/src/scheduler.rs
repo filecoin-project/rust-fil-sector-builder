@@ -34,6 +34,9 @@ pub struct Scheduler {
 }
 
 #[derive(Debug)]
+pub struct PerformHealthCheck(pub bool);
+
+#[derive(Debug)]
 pub enum Request {
     AddPiece(
         String,
@@ -43,7 +46,7 @@ pub enum Request {
         mpsc::SyncSender<Result<SectorId>>,
     ),
     GetSealedSectors(
-        bool, // check health
+        PerformHealthCheck,
         mpsc::SyncSender<Result<Vec<GetSealedSectorResult>>>,
     ),
     GetStagedSectors(mpsc::SyncSender<Result<Vec<StagedSectorMetadata>>>),
@@ -120,7 +123,7 @@ impl Scheduler {
                     }
                     Request::RetrievePiece(piece_key, tx) => m.retrieve_piece(piece_key, tx),
                     Request::GetSealedSectors(check_health, tx) => {
-                        tx.send(m.get_sealed_sectors(check_health))
+                        tx.send(m.get_sealed_sectors(check_health.0))
                             .expects(FATAL_NOSEND);
                     }
                     Request::GetStagedSectors(tx) => {

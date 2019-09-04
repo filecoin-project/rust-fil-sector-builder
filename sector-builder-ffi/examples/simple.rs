@@ -25,30 +25,17 @@ use tempfile::{NamedTempFile, TempDir};
 
 include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 
-///////////////////////////////////////////////////////////////////////////////
-// SectorBuilder lifecycle test
-///////////////////////////////
-
-fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
-    let mut byte_vector = vec![];
-    byte_vector.write_u64::<LittleEndian>(sector_id).unwrap();
-    byte_vector.resize(31, 0);
-
-    let mut byte_array = [0; 31];
-    let bytes = &byte_vector[..byte_array.len()]; // panics if not enough data
-    byte_array.copy_from_slice(bytes);
-
-    byte_array
+struct TestConfiguration {
+    first_piece_bytes: usize,
+    max_bytes: usize,
+    second_piece_bytes: usize,
+    sector_class: sector_builder_ffi_FFISectorClass,
+    third_piece_bytes: usize,
+    fourth_piece_bytes: usize,
+    max_num_staged_sectors: u8,
 }
 
-fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
-    let mut rng = thread_rng();
-    let bytes = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
-    let key = (0..16)
-        .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
-        .collect();
-    (key, bytes)
-}
+/// wrappers for FFI calls
 
 unsafe fn get_sealed_sectors(
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -109,19 +96,6 @@ unsafe fn add_piece(
     (*resp).sector_id.clone()
 }
 
-unsafe fn create_and_add_piece(
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    num_bytes_in_piece: usize,
-) -> (String, Vec<u8>, u64) {
-    let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
-
-    (
-        piece_key.clone(),
-        piece_bytes.clone(),
-        add_piece(ptr, &piece_key, &piece_bytes, 5000000000),
-    )
-}
-
 unsafe fn get_seal_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
@@ -135,6 +109,31 @@ unsafe fn get_seal_status(
 
     (*resp).seal_status_code.clone()
 }
+
+/// miscellaneous utility functions
+
+fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
+    let mut byte_vector = vec![];
+    byte_vector.write_u64::<LittleEndian>(sector_id).unwrap();
+    byte_vector.resize(31, 0);
+
+    let mut byte_array = [0; 31];
+    let bytes = &byte_vector[..byte_array.len()]; // panics if not enough data
+    byte_array.copy_from_slice(bytes);
+
+    byte_array
+}
+
+fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
+    let mut rng = thread_rng();
+    let bytes = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
+    let key = (0..16)
+        .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
+        .collect();
+    (key, bytes)
+}
+
+/// compound operations
 
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -173,6 +172,19 @@ unsafe fn poll_for_sector_sealing_status(
         .unwrap();
 
     assert_eq!(now_sealed_sector_id, 124);
+}
+
+unsafe fn create_and_add_piece(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    num_bytes_in_piece: usize,
+) -> (String, Vec<u8>, u64) {
+    let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
+
+    (
+        piece_key.clone(),
+        piece_bytes.clone(),
+        add_piece(ptr, &piece_key, &piece_bytes, 5000000000),
+    )
 }
 
 unsafe fn create_sector_builder(
@@ -219,15 +231,7 @@ unsafe fn create_sector_builder(
     )
 }
 
-struct TestConfiguration {
-    first_piece_bytes: usize,
-    max_bytes: usize,
-    second_piece_bytes: usize,
-    sector_class: sector_builder_ffi_FFISectorClass,
-    third_piece_bytes: usize,
-    fourth_piece_bytes: usize,
-    max_num_staged_sectors: u8,
-}
+/// lifecycle test
 
 unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn Error>> {
     let metadata_dir_a = tempfile::tempdir().unwrap();
@@ -365,18 +369,21 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // get sealed sector and verify the PoRep proof
     {
-        let resp = sector_builder_ffi_get_seal_status(sector_builder_b, 124);
+        let mut sealed_sector = get_sealed_sectors(sector_builder_b, false)
+            .into_iter()
+            .find(|ss| ss.sector_id == 124)
+            .expect("no sealed sector with id 124");
 
         {
             let resp2 = sector_builder_ffi_verify_seal(
                 cfg.sector_class.sector_size,
-                &mut (*resp).comm_r,
-                &mut (*resp).comm_d,
-                &mut (*resp).comm_r_star,
+                &mut sealed_sector.comm_r,
+                &mut sealed_sector.comm_d,
+                &mut sealed_sector.comm_r_star,
                 &mut u64_to_fr_safe(0),
                 124,
-                (*resp).proof_ptr,
-                (*resp).proof_len,
+                sealed_sector.proofs_ptr,
+                sealed_sector.proofs_len,
             );
             defer!(sector_builder_ffi_destroy_verify_seal_response(resp2));
 
@@ -386,42 +393,27 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
             assert!((*resp2).is_valid)
         }
-
-        sector_builder_ffi_destroy_get_seal_status_response(resp);
-    }
-
-    // get sealed sectors - we should have just one
-    {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(1, (*resp).sectors_len);
     }
 
     // get sealed sectors w/health checks
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+        let all_sealed = get_sealed_sectors(sector_builder_b, true);
+        assert_eq!(1, all_sealed.len());
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+        let sealed_sector = all_sealed
+            .clone()
+            .into_iter()
+            .find(|ss| ss.sector_id == 124)
+            .expect("no sealed sector with id 124");
 
         assert_eq!(
-            sealed_sector_metadata.health,
+            sealed_sector.health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
 
         let sealed_sector_path = sealed_dir_b
             .path()
-            .join(c_str_to_pbuf(sealed_sector_metadata.sector_access));
+            .join(c_str_to_pbuf(sealed_sector.sector_access));
 
         let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
 
@@ -433,18 +425,14 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         std::fs::write(&sealed_sector_path, &new_content).expect("failed to write fake sector");
 
         // invalid checksum
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+        let sealed_sector = all_sealed
+            .clone()
+            .into_iter()
+            .find(|ss| ss.sector_id == 124)
+            .expect("no sealed sector with id 124");
 
         assert_eq!(
-            sealed_sector_metadata.health,
+            sealed_sector.health,
             sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
         );
 
@@ -452,18 +440,14 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         std::fs::write(&sealed_sector_path, &content).expect("failed to restore sector");
 
         // checksum is now valid
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, true);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+        let sealed_sector = all_sealed
+            .clone()
+            .into_iter()
+            .find(|ss| ss.sector_id == 124)
+            .expect("no sealed sector with id 124");
 
         assert_eq!(
-            sealed_sector_metadata.health,
+            sealed_sector.health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
     }

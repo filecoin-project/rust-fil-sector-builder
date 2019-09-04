@@ -299,8 +299,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         // compute sector health in parallel using workers from rayon global
         // thread pool
         with_path
-            .par_iter()
-            .cloned()
+            .into_par_iter()
             .map(|(pbuf, meta)| {
                 let health = get_sealed_sector_health(&pbuf, &meta)?;
                 Ok(WithHealth(health, meta))

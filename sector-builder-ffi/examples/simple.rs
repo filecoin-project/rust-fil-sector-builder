@@ -261,14 +261,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     // get staged sector metadata and verify that we've now got two staged
     // sectors
     {
-        let resp = sector_builder_ffi_get_staged_sectors(sector_builder_a);
-        defer!(sector_builder_ffi_destroy_get_staged_sectors_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert_eq!(2, (*resp).sectors_len);
+        let staged_sectors = get_staged_sectors(sector_builder_a);
+        assert_eq!(2, staged_sectors.len());
     }
 
     // drop the first sector builder, relinquishing any locks on persistence

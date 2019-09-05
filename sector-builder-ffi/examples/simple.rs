@@ -21,6 +21,7 @@ use ffi_toolkit::{c_str_to_pbuf, c_str_to_rust_str, free_c_str, rust_str_to_c_st
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
+use std::path::Path;
 use tempfile::{NamedTempFile, TempDir};
 
 include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
@@ -64,13 +65,24 @@ fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
     byte_array
 }
 
-fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
+struct MakePiece {
+    file: NamedTempFile,
+    bytes: Vec<u8>,
+    key: String,
+}
+
+fn make_piece(num_bytes_in_piece: usize) -> MakePiece {
     let mut rng = thread_rng();
-    let bytes = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
+    let bytes: Vec<u8> = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
     let key = (0..16)
         .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
         .collect();
-    (key, bytes)
+
+    // write piece bytes to a temporary file
+    let mut file = NamedTempFile::new().expects("could not create named temp file");
+    let _ = file.write_all(&bytes);
+
+    MakePiece { file, bytes, key }
 }
 
 /// wrappers for FFI calls
@@ -93,19 +105,6 @@ unsafe fn get_sealed_sectors(
     slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
 }
 
-unsafe fn get_sealed_sector(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    sector_id: u64,
-) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let sealed_sector = get_sealed_sectors(ctx, ptr, true)
-        .into_iter()
-        .find(|ss| ss.sector_id == sector_id)
-        .expect("no sealed sector with id 124");
-
-    sealed_sector
-}
-
 unsafe fn get_staged_sectors(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -122,27 +121,24 @@ unsafe fn get_staged_sectors(
     slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
 }
 
-unsafe fn add_piece(
+unsafe fn add_piece<T: AsRef<Path>>(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     piece_key: &str,
-    piece_bytes: &[u8],
+    piece_path: T,
+    piece_len: usize,
     store_until_utc_secs: u64,
 ) -> u64 {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
-    // write piece bytes to a temporary file
-    let mut file = NamedTempFile::new().expects("could not create named temp file");
-    let p = file.path().to_string_lossy().to_string();
-    let _ = file.write_all(&piece_bytes);
-    let c_piece_path = rust_str_to_c_str(p);
+    let c_piece_path = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
     defer!(free_c_str(c_piece_path));
 
     let resp = sector_builder_ffi_add_piece(
         ptr,
         c_piece_key,
-        piece_bytes.len() as u64,
+        piece_len as u64,
         c_piece_path,
         store_until_utc_secs,
     );
@@ -174,6 +170,9 @@ unsafe fn get_seal_status(
     (*resp).seal_status_code.clone()
 }
 
+/// compound operations
+///
+
 unsafe fn get_faulty_sector_ids(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -185,8 +184,18 @@ unsafe fn get_faulty_sector_ids(
         .collect()
 }
 
-/// compound operations
-///
+unsafe fn get_sealed_sector(
+    ctx: &mut MemContext,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) -> sector_builder_ffi_FFISealedSectorMetadata {
+    let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .into_iter()
+        .find(|ss| ss.sector_id == sector_id)
+        .expect("no sealed sector with id 124");
+
+    sealed_sector
+}
 
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -313,20 +322,29 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     // add first piece, which lazily provisions a new staged sector
     {
-        let (key, bs) = make_piece(cfg.first_piece_bytes);
-        assert_eq!(124, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
+        let MakePiece { file, bytes, key } = make_piece(cfg.first_piece_bytes);
+        assert_eq!(
+            124,
+            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+        );
     }
 
     // add second piece, which fits into existing staged sector
     {
-        let (key, bs) = make_piece(cfg.second_piece_bytes);
-        assert_eq!(124, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
+        let MakePiece { file, bytes, key } = make_piece(cfg.second_piece_bytes);
+        assert_eq!(
+            124,
+            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+        );
     }
 
     // add third piece, which won't fit into existing staging sector
     {
-        let (key, bs) = make_piece(cfg.third_piece_bytes);
-        assert_eq!(125, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
+        let MakePiece { file, bytes, key } = make_piece(cfg.third_piece_bytes);
+        assert_eq!(
+            125,
+            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+        );
     }
 
     // get staged sector metadata and verify that we've now got two staged
@@ -366,8 +384,11 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
     // add fourth piece that will trigger sealing in the first sector
-    let (key, bs) = make_piece(cfg.fourth_piece_bytes);
-    assert_eq!(124, add_piece(&mut ctx, b_ptr, &key, &bs, 5000000));
+    let MakePiece { file, bytes, key } = make_piece(cfg.fourth_piece_bytes);
+    assert_eq!(
+        124,
+        add_piece(&mut ctx, b_ptr, &key, file.path(), bytes.len(), 5000000)
+    );
 
     // block until the sector has been sealed
     poll_for_sector_sealing_status(
@@ -376,6 +397,28 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         sector_builder_ffi_FFISealStatus_Sealed,
         cfg.estimated_secs_to_seal_sector,
     );
+
+    // after sealing, read the bytes (causes unseal) and compare with what we
+    // added to the sector
+    {
+        let c_piece_key = rust_str_to_c_str(key.clone());
+        defer!(free_c_str(c_piece_key));
+
+        let resp = sector_builder_ffi_read_piece_from_sealed_sector(b_ptr, c_piece_key);
+        defer!(sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        let data_ptr = (*resp).data_ptr as *mut u8;
+        let data_len = (*resp).data_len;
+        let mut bytes_out = Vec::with_capacity(data_len);
+        bytes_out.set_len(data_len);
+        ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
+
+        assert_eq!(format!("{:x?}", bytes), format!("{:x?}", bytes_out));
+    }
 
     // get sealed sector and verify the PoRep proof
     {
@@ -421,7 +464,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
         let mut file = NamedTempFile::new().expects("could not create named temp file");
         let p = file.path().to_string_lossy().to_string();
-        let _ = file.write_all(&bs);
+        let _ = file.write_all(&bytes);
         let c_piece_path = rust_str_to_c_str(p);
         defer!(free_c_str(c_piece_path));
 
@@ -550,28 +593,6 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         }
 
         assert!((*resp).is_valid)
-    }
-
-    // after sealing, read the bytes (causes unseal) and compare with what we
-    // added to the sector
-    {
-        let c_piece_key = rust_str_to_c_str(key.clone());
-        defer!(free_c_str(c_piece_key));
-
-        let resp = sector_builder_ffi_read_piece_from_sealed_sector(b_ptr, c_piece_key);
-        defer!(sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let data_ptr = (*resp).data_ptr as *mut u8;
-        let data_len = (*resp).data_len;
-        let mut bytes_out = Vec::with_capacity(data_len);
-        bytes_out.set_len(data_len);
-        ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
-
-        assert_eq!(format!("{:x?}", bs), format!("{:x?}", bytes_out));
     }
 
     Ok(())

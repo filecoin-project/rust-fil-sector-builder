@@ -268,6 +268,12 @@ unsafe fn get_sealed_piece(
         ))
 }
 
+unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_SectorBuilder) {
+    sector_builder_ffi_destroy_sector_builder(p);
+    p = ptr::null_mut();
+    assert!(p.is_null());
+}
+
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
@@ -428,32 +434,34 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     }
 
     // drop the first sector builder, relinquishing any locks on persistence
-    sector_builder_ffi_destroy_sector_builder(a_ptr);
+    destroy_sector_builder(a_ptr);
 
     // migrate staged sectors, sealed sectors, and sector builder metadata to
     // new directory (overwrites destination directory)
-    let renames = vec![
-        (metadata_dir_a.as_ref(), metadata_dir_b.as_ref()),
-        (staging_dir_a.as_ref(), staging_dir_b.as_ref()),
-        (sealed_dir_a.as_ref(), sealed_dir_b.as_ref()),
-    ];
+    let (b_ptr, _) = {
+        let renames = vec![
+            (metadata_dir_a.as_ref(), metadata_dir_b.as_ref()),
+            (staging_dir_a.as_ref(), staging_dir_b.as_ref()),
+            (sealed_dir_a.as_ref(), sealed_dir_b.as_ref()),
+        ];
 
-    for (from, to) in renames {
-        fs::rename(from, to).expect(&format!("could not rename from {:?} to {:?}", from, to));
-    }
+        for (from, to) in renames {
+            fs::rename(from, to).expect(&format!("could not rename from {:?} to {:?}", from, to));
+        }
 
-    // create a new sector builder using the new staged sector dir and original
-    // prover id, which will initialize with metadata persisted by previous
-    // sector builder
-    let (b_ptr, _) = create_sector_builder(
-        &metadata_dir_b,
-        &staging_dir_b,
-        &sealed_dir_b,
-        prover_id,
-        123,
-        cfg.sector_class,
-        cfg.max_num_staged_sectors,
-    );
+        // create a new sector builder using the new staged sector dir and original
+        // prover id, which will initialize with metadata persisted by previous
+        // sector builder
+        create_sector_builder(
+            &metadata_dir_b,
+            &staging_dir_b,
+            &sealed_dir_b,
+            prover_id,
+            123,
+            cfg.sector_class,
+            cfg.max_num_staged_sectors,
+        )
+    };
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
     // add fourth piece that will trigger sealing in the first sector

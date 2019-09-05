@@ -53,9 +53,9 @@ struct TestConfiguration {
 /// miscellaneous utility functions
 ///
 
-fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
+fn u64_to_fr_safe(n: u64) -> [u8; 31] {
     let mut byte_vector = vec![];
-    byte_vector.write_u64::<LittleEndian>(sector_id).unwrap();
+    byte_vector.write_u64::<LittleEndian>(n).unwrap();
     byte_vector.resize(31, 0);
 
     let mut byte_array = [0; 31];
@@ -168,6 +168,37 @@ unsafe fn get_seal_status(
     }
 
     (*resp).seal_status_code.clone()
+}
+
+unsafe fn verify_seal(
+    ctx: &mut MemContext,
+    sector_size: u64,
+    sector_id: u64,
+    proof: &[u8],
+    comm_r: [u8; 32],
+    comm_d: [u8; 32],
+    comm_r_star: [u8; 32],
+    prover_id: [u8; 31],
+) -> bool {
+    let resp = sector_builder_ffi_verify_seal(
+        sector_size,
+        &mut comm_r.clone(),
+        &mut comm_d.clone(),
+        &mut comm_r_star.clone(),
+        &mut prover_id.clone(),
+        sector_id,
+        proof.as_ptr(),
+        proof.len(),
+    );
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_verify_seal_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    (*resp).is_valid.clone()
 }
 
 /// compound operations
@@ -291,11 +322,13 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     let sealed_dir_a = tempfile::tempdir().unwrap();
     let sealed_dir_b = tempfile::tempdir().unwrap();
 
+    let prover_id = u64_to_fr_safe(0);
+
     let (a_ptr, max_bytes) = create_sector_builder(
         &metadata_dir_a,
         &staging_dir_a,
         &sealed_dir_a,
-        u64_to_fr_safe(0),
+        prover_id,
         123,
         cfg.sector_class,
         cfg.max_num_staged_sectors,
@@ -376,7 +409,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         &metadata_dir_b,
         &staging_dir_b,
         &sealed_dir_b,
-        u64_to_fr_safe(0),
+        prover_id,
         123,
         cfg.sector_class,
         cfg.max_num_staged_sectors,
@@ -422,25 +455,21 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     // get sealed sector and verify the PoRep proof
     {
-        let mut sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
+        let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 
-        let resp = sector_builder_ffi_verify_seal(
-            cfg.sector_class.sector_size,
-            &mut sealed_sector.comm_r,
-            &mut sealed_sector.comm_d,
-            &mut sealed_sector.comm_r_star,
-            &mut u64_to_fr_safe(0),
-            sealed_sector.sector_id,
-            sealed_sector.proofs_ptr,
-            sealed_sector.proofs_len,
+        assert!(
+            verify_seal(
+                &mut ctx,
+                cfg.sector_class.sector_size,
+                sealed_sector.sector_id,
+                slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
+                sealed_sector.comm_r,
+                sealed_sector.comm_d,
+                sealed_sector.comm_r_star,
+                prover_id,
+            ),
+            "seal verification failed"
         );
-        defer!(sector_builder_ffi_destroy_verify_seal_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert!((*resp).is_valid, "seal verification failed");
     }
 
     // storage client and miner should generate identical CommP for the same

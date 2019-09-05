@@ -157,6 +157,26 @@ unsafe fn get_seal_status(
     (*resp).seal_status_code.clone()
 }
 
+unsafe fn read_piece_from_sealed_sector(
+    ctx: &mut MemContext,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    piece_key: &str,
+) -> Vec<u8> {
+    let c_piece_key = rust_str_to_c_str(piece_key);
+    defer!(free_c_str(c_piece_key));
+
+    let resp = sector_builder_ffi_read_piece_from_sealed_sector(ptr, c_piece_key);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec()
+}
+
 unsafe fn generate_piece_commitment<T: AsRef<Path>>(
     ctx: &mut MemContext,
     piece_path: T,
@@ -484,25 +504,10 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     // after sealing, read the bytes (causes unseal) and compare with what we
     // added to the sector
     {
-        let c_piece_key = rust_str_to_c_str(fourth_piece_key.clone());
-        defer!(free_c_str(c_piece_key));
-
-        let resp = sector_builder_ffi_read_piece_from_sealed_sector(b_ptr, c_piece_key);
-        defer!(sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let data_ptr = (*resp).data_ptr as *mut u8;
-        let data_len = (*resp).data_len;
-        let mut bytes_out = Vec::with_capacity(data_len);
-        bytes_out.set_len(data_len);
-        ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
-
+        let unsealed_bytes = read_piece_from_sealed_sector(&mut ctx, b_ptr, &fourth_piece_key);
         assert_eq!(
             format!("{:x?}", fourth_piece_bytes),
-            format!("{:x?}", bytes_out)
+            format!("{:x?}", unsealed_bytes)
         );
     }
 

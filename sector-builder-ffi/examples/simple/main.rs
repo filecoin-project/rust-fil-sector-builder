@@ -305,7 +305,8 @@ unsafe fn poll_for_sector_sealing_status(
     assert_eq!(now_sealed_sector_id, 124);
 }
 
-unsafe fn create_sector_builder(
+unsafe fn init_sector_builder(
+    ctx: &mut MemContext,
     metadata_dir: &TempDir,
     staging_dir: &TempDir,
     sealed_dir: &TempDir,
@@ -313,9 +314,7 @@ unsafe fn create_sector_builder(
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
-) -> (*mut sector_builder_ffi_SectorBuilder, usize) {
-    let mut prover_id: [u8; 31] = prover_id;
-
+) -> *mut sector_builder_ffi_SectorBuilder {
     let c_metadata_dir = rust_str_to_c_str(metadata_dir.path().to_str().unwrap());
     let c_sealed_dir = rust_str_to_c_str(sealed_dir.path().to_str().unwrap());
     let c_staging_dir = rust_str_to_c_str(staging_dir.path().to_str().unwrap());
@@ -330,23 +329,20 @@ unsafe fn create_sector_builder(
         sector_class,
         last_committed_sector_id,
         c_metadata_dir,
-        &mut prover_id,
+        &mut prover_id.clone(),
         c_sealed_dir,
         c_staging_dir,
         max_num_staged_sectors,
     );
-    defer!(sector_builder_ffi_destroy_init_sector_builder_response(
-        resp
-    ));
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_init_sector_builder_response(resp);
+    })));
 
     if (*resp).status_code != 0 {
         panic!("{}", c_str_to_rust_str((*resp).error_msg))
     }
 
-    (
-        (*resp).sector_builder,
-        sector_builder_ffi_get_max_user_bytes_per_staged_sector(sector_class.sector_size) as usize,
-    )
+    (*resp).sector_builder
 }
 
 /// lifecycle test
@@ -363,7 +359,8 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     let mut ctx: MemContext = Default::default();
 
-    let (a_ptr, _) = create_sector_builder(
+    let a_ptr = init_sector_builder(
+        &mut ctx,
         &metadata_dir_a,
         &staging_dir_a,
         &sealed_dir_a,
@@ -431,7 +428,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     // migrate staged sectors, sealed sectors, and sector builder metadata to
     // new directory (overwrites destination directory)
-    let (b_ptr, _) = {
+    let b_ptr = {
         let renames = vec![
             (metadata_dir_a.as_ref(), metadata_dir_b.as_ref()),
             (staging_dir_a.as_ref(), staging_dir_b.as_ref()),
@@ -445,7 +442,8 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         // create a new sector builder using the new staged sector dir and original
         // prover id, which will initialize with metadata persisted by previous
         // sector builder
-        create_sector_builder(
+        init_sector_builder(
+            &mut ctx,
             &metadata_dir_b,
             &staging_dir_b,
             &sealed_dir_b,

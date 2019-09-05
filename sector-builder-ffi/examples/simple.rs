@@ -46,9 +46,35 @@ struct TestConfiguration {
     third_piece_bytes: usize,
     fourth_piece_bytes: usize,
     max_num_staged_sectors: u8,
+    estimated_secs_to_seal_sector: u64,
+}
+
+/// miscellaneous utility functions
+///
+
+fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
+    let mut byte_vector = vec![];
+    byte_vector.write_u64::<LittleEndian>(sector_id).unwrap();
+    byte_vector.resize(31, 0);
+
+    let mut byte_array = [0; 31];
+    let bytes = &byte_vector[..byte_array.len()]; // panics if not enough data
+    byte_array.copy_from_slice(bytes);
+
+    byte_array
+}
+
+fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
+    let mut rng = thread_rng();
+    let bytes = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
+    let key = (0..16)
+        .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
+        .collect();
+    (key, bytes)
 }
 
 /// wrappers for FFI calls
+///
 
 unsafe fn get_sealed_sectors(
     ctx: &mut MemContext,
@@ -148,31 +174,6 @@ unsafe fn get_seal_status(
     (*resp).seal_status_code.clone()
 }
 
-/// miscellaneous utility functions
-
-fn u64_to_fr_safe(sector_id: u64) -> [u8; 31] {
-    let mut byte_vector = vec![];
-    byte_vector.write_u64::<LittleEndian>(sector_id).unwrap();
-    byte_vector.resize(31, 0);
-
-    let mut byte_array = [0; 31];
-    let bytes = &byte_vector[..byte_array.len()]; // panics if not enough data
-    byte_array.copy_from_slice(bytes);
-
-    byte_array
-}
-
-fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
-    let mut rng = thread_rng();
-    let bytes = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
-    let key = (0..16)
-        .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
-        .collect();
-    (key, bytes)
-}
-
-/// compound operations
-
 unsafe fn get_faulty_sector_ids(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -183,6 +184,9 @@ unsafe fn get_faulty_sector_ids(
         .map(|ss| ss.sector_id)
         .collect()
 }
+
+/// compound operations
+///
 
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -222,20 +226,6 @@ unsafe fn poll_for_sector_sealing_status(
         .unwrap();
 
     assert_eq!(now_sealed_sector_id, 124);
-}
-
-unsafe fn create_and_add_piece(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    num_bytes_in_piece: usize,
-) -> (String, Vec<u8>, u64) {
-    let (piece_key, piece_bytes) = make_piece(num_bytes_in_piece);
-
-    (
-        piece_key.clone(),
-        piece_bytes.clone(),
-        add_piece(ctx, ptr, &piece_key, &piece_bytes, 5000000000),
-    )
 }
 
 unsafe fn create_sector_builder(
@@ -284,41 +274,13 @@ unsafe fn create_sector_builder(
 
 /// lifecycle test
 
-unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn Error>> {
+unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn Error>> {
     let metadata_dir_a = tempfile::tempdir().unwrap();
     let metadata_dir_b = tempfile::tempdir().unwrap();
     let staging_dir_a = tempfile::tempdir().unwrap();
     let staging_dir_b = tempfile::tempdir().unwrap();
     let sealed_dir_a = tempfile::tempdir().unwrap();
     let sealed_dir_b = tempfile::tempdir().unwrap();
-
-    let cfg = if use_live_store {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: LIVE_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016 * 1024 * 256,
-            first_piece_bytes: 400 * 1024 * 256,
-            second_piece_bytes: 200 * 1024 * 256,
-            third_piece_bytes: 500 * 1024 * 256,
-            fourth_piece_bytes: 200 * 1024 * 256,
-            max_num_staged_sectors: 2,
-        }
-    } else {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: TEST_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016,
-            first_piece_bytes: 400,
-            second_piece_bytes: 200,
-            third_piece_bytes: 500,
-            fourth_piece_bytes: 200,
-            max_num_staged_sectors: 2,
-        }
-    };
 
     let (a_ptr, max_bytes) = create_sector_builder(
         &metadata_dir_a,
@@ -351,20 +313,20 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // add first piece, which lazily provisions a new staged sector
     {
-        let (_, _, sector_id) = create_and_add_piece(&mut ctx, a_ptr, cfg.first_piece_bytes);
-        assert_eq!(124, sector_id);
+        let (key, bs) = make_piece(cfg.first_piece_bytes);
+        assert_eq!(124, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
     }
 
     // add second piece, which fits into existing staged sector
     {
-        let (_, _, sector_id) = create_and_add_piece(&mut ctx, a_ptr, cfg.second_piece_bytes);
-        assert_eq!(124, sector_id);
+        let (key, bs) = make_piece(cfg.second_piece_bytes);
+        assert_eq!(124, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
     }
 
     // add third piece, which won't fit into existing staging sector
     {
-        let (_, _, sector_id) = create_and_add_piece(&mut ctx, a_ptr, cfg.third_piece_bytes);
-        assert_eq!(125, sector_id);
+        let (key, bs) = make_piece(cfg.third_piece_bytes);
+        assert_eq!(125, add_piece(&mut ctx, a_ptr, &key, &bs, 5000000));
     }
 
     // get staged sector metadata and verify that we've now got two staged
@@ -404,19 +366,15 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
     // add fourth piece that will trigger sealing in the first sector
-    let (piece_key, bytes_in) = {
-        let (k, bs, sector_id) = create_and_add_piece(&mut ctx, b_ptr, cfg.fourth_piece_bytes);
-        assert_eq!(124, sector_id);
-
-        (k, bs)
-    };
+    let (key, bs) = make_piece(cfg.fourth_piece_bytes);
+    assert_eq!(124, add_piece(&mut ctx, b_ptr, &key, &bs, 5000000));
 
     // block until the sector has been sealed
     poll_for_sector_sealing_status(
         b_ptr,
         124,
         sector_builder_ffi_FFISealStatus_Sealed,
-        if use_live_store { 60 * 120 } else { 60 * 5 },
+        cfg.estimated_secs_to_seal_sector,
     );
 
     // get sealed sector and verify the PoRep proof
@@ -455,7 +413,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             .into_iter()
             .find(|&piece| {
                 let pk = c_str_to_rust_str(piece.piece_key).to_string();
-                &pk == &piece_key
+                &pk == &key
             })
             .expects("could not find piece with matching key");
 
@@ -463,7 +421,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
         let mut file = NamedTempFile::new().expects("could not create named temp file");
         let p = file.path().to_string_lossy().to_string();
-        let _ = file.write_all(&bytes_in);
+        let _ = file.write_all(&bs);
         let c_piece_path = rust_str_to_c_str(p);
         defer!(free_c_str(c_piece_path));
 
@@ -597,7 +555,7 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     // after sealing, read the bytes (causes unseal) and compare with what we
     // added to the sector
     {
-        let c_piece_key = rust_str_to_c_str(piece_key.clone());
+        let c_piece_key = rust_str_to_c_str(key.clone());
         defer!(free_c_str(c_piece_key));
 
         let resp = sector_builder_ffi_read_piece_from_sealed_sector(b_ptr, c_piece_key);
@@ -613,19 +571,42 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         bytes_out.set_len(data_len);
         ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
 
-        assert_eq!(format!("{:x?}", bytes_in), format!("{:x?}", bytes_out));
+        assert_eq!(format!("{:x?}", bs), format!("{:x?}", bytes_out));
     }
 
     Ok(())
 }
 
 fn main() {
-    // If TEST_LIVE_SEAL is set, use the Live configuration, and don't unseal
-    // — so process running time will closely approximate sealing time.
-    let use_live_store = match env::var("TEST_LIVE_SEAL") {
-        Ok(_) => true,
-        Err(_) => false,
+    let cfg = if env::var("TEST_LIVE_SEAL").is_ok() {
+        TestConfiguration {
+            sector_class: sector_builder_ffi_FFISectorClass {
+                sector_size: LIVE_SECTOR_SIZE,
+                porep_proof_partitions: 2,
+            },
+            max_bytes: 1016 * 1024 * 256,
+            first_piece_bytes: 400 * 1024 * 256,
+            second_piece_bytes: 200 * 1024 * 256,
+            third_piece_bytes: 500 * 1024 * 256,
+            fourth_piece_bytes: 200 * 1024 * 256,
+            max_num_staged_sectors: 2,
+            estimated_secs_to_seal_sector: 60 * 120,
+        }
+    } else {
+        TestConfiguration {
+            sector_class: sector_builder_ffi_FFISectorClass {
+                sector_size: TEST_SECTOR_SIZE,
+                porep_proof_partitions: 2,
+            },
+            max_bytes: 1016,
+            first_piece_bytes: 400,
+            second_piece_bytes: 200,
+            third_piece_bytes: 500,
+            fourth_piece_bytes: 200,
+            max_num_staged_sectors: 2,
+            estimated_secs_to_seal_sector: 60 * 5,
+        }
     };
 
-    unsafe { sector_builder_lifecycle(use_live_store).unwrap() };
+    unsafe { sector_builder_lifecycle(cfg).unwrap() };
 }

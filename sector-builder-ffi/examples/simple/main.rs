@@ -40,7 +40,7 @@ impl Drop for MemContext {
 
 struct TestConfiguration {
     first_piece_bytes: usize,
-    max_bytes: usize,
+    max_bytes: u64,
     second_piece_bytes: usize,
     sector_class: sector_builder_ffi_FFISectorClass,
     third_piece_bytes: usize,
@@ -255,6 +255,10 @@ unsafe fn get_sealed_piece(
         ))
 }
 
+unsafe fn get_max_user_bytes_per_staged_sector(sector_size: u64) -> u64 {
+    sector_builder_ffi_get_max_user_bytes_per_staged_sector(sector_size)
+}
+
 unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_SectorBuilder) {
     sector_builder_ffi_destroy_sector_builder(p);
     p = ptr::null_mut();
@@ -359,7 +363,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     let mut ctx: MemContext = Default::default();
 
-    let (a_ptr, max_bytes) = create_sector_builder(
+    let (a_ptr, _) = create_sector_builder(
         &metadata_dir_a,
         &staging_dir_a,
         &sealed_dir_a,
@@ -368,6 +372,8 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         cfg.sector_class,
         cfg.max_num_staged_sectors,
     );
+
+    let max_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
 
     // TODO: Replace the hard-coded byte amounts with values computed
     // from whatever was retrieved from the SectorBuilder.

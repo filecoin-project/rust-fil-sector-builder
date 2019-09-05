@@ -37,29 +37,6 @@ struct TestConfiguration {
 
 /// wrappers for FFI calls
 
-unsafe fn verify_seal(
-    sector_size: u64,
-    mut sealed_sector: sector_builder_ffi_FFISealedSectorMetadata,
-) -> bool {
-    let resp = sector_builder_ffi_verify_seal(
-        sector_size,
-        &mut sealed_sector.comm_r,
-        &mut sealed_sector.comm_d,
-        &mut sealed_sector.comm_r_star,
-        &mut u64_to_fr_safe(0),
-        124,
-        sealed_sector.proofs_ptr,
-        sealed_sector.proofs_len,
-    );
-    defer!(sector_builder_ffi_destroy_verify_seal_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).is_valid
-}
-
 unsafe fn get_sealed_sectors(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     with_health: bool,
@@ -72,6 +49,18 @@ unsafe fn get_sealed_sectors(
     }
 
     slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
+}
+
+unsafe fn get_sealed_sector(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) -> sector_builder_ffi_FFISealedSectorMetadata {
+    let sealed_sector = get_sealed_sectors(ptr, true)
+        .into_iter()
+        .find(|ss| ss.sector_id == sector_id)
+        .expect("no sealed sector with id 124");
+
+    sealed_sector
 }
 
 unsafe fn get_staged_sectors(
@@ -157,6 +146,14 @@ fn make_piece(num_bytes_in_piece: usize) -> (String, Vec<u8>) {
 }
 
 /// compound operations
+
+unsafe fn get_faulty_sector_ids(ptr: *mut sector_builder_ffi_SectorBuilder) -> Vec<u64> {
+    get_sealed_sectors(ptr, true)
+        .iter()
+        .filter(|ss| ss.health != sector_builder_ffi_FFISealedSectorHealth_Ok)
+        .map(|ss| ss.sector_id)
+        .collect()
+}
 
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -314,9 +311,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
     // verify that we have neither sealed nor staged sectors yet
     {
         let sealed_sectors = get_sealed_sectors(sector_builder_a, false);
-        assert_eq!(0, sealed_sectors.len());
-
         let staged_sectors = get_staged_sectors(sector_builder_a);
+        assert_eq!(0, sealed_sectors.len());
         assert_eq!(0, staged_sectors.len());
     }
 
@@ -392,36 +388,39 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // get sealed sector and verify the PoRep proof
     {
-        let sealed_sector = get_sealed_sectors(sector_builder_b, false)
-            .into_iter()
-            .find(|ss| ss.sector_id == 124)
-            .expect("no sealed sector with id 124");
+        let mut sealed_sector = get_sealed_sector(sector_builder_b, 124);
 
-        assert!(
-            verify_seal(cfg.sector_class.sector_size, sealed_sector),
-            "seal verification failed"
+        let resp = sector_builder_ffi_verify_seal(
+            cfg.sector_class.sector_size,
+            &mut sealed_sector.comm_r,
+            &mut sealed_sector.comm_d,
+            &mut sealed_sector.comm_r_star,
+            &mut u64_to_fr_safe(0),
+            sealed_sector.sector_id,
+            sealed_sector.proofs_ptr,
+            sealed_sector.proofs_len,
         );
+        defer!(sector_builder_ffi_destroy_verify_seal_response(resp));
+
+        if (*resp).status_code != 0 {
+            panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        }
+
+        assert!((*resp).is_valid, "seal verification failed");
     }
 
     // get sealed sectors w/health checks
     {
-        let all_sealed = get_sealed_sectors(sector_builder_b, true);
-        assert_eq!(1, all_sealed.len());
-
-        let sealed_sector = all_sealed
-            .clone()
-            .into_iter()
-            .find(|ss| ss.sector_id == 124)
-            .expect("no sealed sector with id 124");
+        assert_eq!(1, get_sealed_sectors(sector_builder_b, true).len());
 
         assert_eq!(
-            sealed_sector.health,
+            get_sealed_sector(sector_builder_b, 124).health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
 
-        let sealed_sector_path = sealed_dir_b
-            .path()
-            .join(c_str_to_pbuf(sealed_sector.sector_access));
+        let sealed_sector_path = sealed_dir_b.path().join(c_str_to_pbuf(
+            get_sealed_sector(sector_builder_b, 124).sector_access,
+        ));
 
         let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
 
@@ -433,14 +432,8 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         std::fs::write(&sealed_sector_path, &new_content).expect("failed to write fake sector");
 
         // invalid checksum
-        let sealed_sector = all_sealed
-            .clone()
-            .into_iter()
-            .find(|ss| ss.sector_id == 124)
-            .expect("no sealed sector with id 124");
-
         assert_eq!(
-            sealed_sector.health,
+            get_sealed_sector(sector_builder_b, 124).health,
             sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
         );
 
@@ -448,38 +441,19 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         std::fs::write(&sealed_sector_path, &content).expect("failed to restore sector");
 
         // checksum is now valid
-        let sealed_sector = all_sealed
-            .clone()
-            .into_iter()
-            .find(|ss| ss.sector_id == 124)
-            .expect("no sealed sector with id 124");
-
         assert_eq!(
-            sealed_sector.health,
+            get_sealed_sector(sector_builder_b, 124).health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
     }
 
     // verify pips
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+        let sealed_sector = get_sealed_sector(sector_builder_b, 124);
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
+        let mut comm_d = sealed_sector.comm_d.clone();
 
-        assert_eq!((*resp).sectors_len, 1);
-
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
-
-        let mut comm_d = sealed_sector_metadata.comm_d.clone();
-
-        let pieces = slice::from_raw_parts(
-            sealed_sector_metadata.pieces_ptr,
-            sealed_sector_metadata.pieces_len,
-        );
+        let pieces = slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len);
 
         for piece in pieces {
             let mut comm_p = piece.comm_p.clone();
@@ -504,31 +478,32 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
 
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+        let comm_rs =
+            get_sealed_sectors(sector_builder_b, true)
+                .iter()
+                .fold(vec![], |mut acc, item| {
+                    acc.append(
+                        &mut slice::from_raw_parts(item.proofs_ptr, item.proofs_len).to_vec(),
+                    );
+                    acc
+                });
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
+        let sector_ids: Vec<u64> = get_sealed_sectors(sector_builder_b, true)
+            .iter()
+            .map(|ss| ss.sector_id)
+            .collect();
 
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
+        let faulty_sector_ids = get_faulty_sector_ids(sector_builder_b);
 
-        let sector_ids = vec![sealed_sector_metadata.sector_id];
-
-        let sealed_sector_replica_commitment: [u8; 32] = sealed_sector_metadata.comm_r;
-
-        let mut challenge_seed: [u8; 32] = [0; 32];
-
-        let faults = vec![];
+        let mut challenge_seed = [1u8; 32];
 
         let resp = sector_builder_ffi_generate_post(
             sector_builder_b,
-            sealed_sector_replica_commitment.as_ptr(),
-            sealed_sector_replica_commitment.len(),
+            comm_rs.as_ptr(),
+            comm_rs.len(),
             &mut challenge_seed,
-            faults.as_ptr(),
-            faults.len(),
+            faulty_sector_ids.as_ptr(),
+            faulty_sector_ids.len(),
         );
         defer!(sector_builder_ffi_destroy_generate_post_response(resp));
 
@@ -541,10 +516,10 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
             &mut challenge_seed,
             sector_ids.as_ptr(),
             sector_ids.len(),
-            faults.as_ptr(),
-            faults.len(),
-            sealed_sector_replica_commitment.as_ptr(),
-            sealed_sector_replica_commitment.len(),
+            faulty_sector_ids.as_ptr(),
+            faulty_sector_ids.len(),
+            comm_rs.as_ptr(),
+            comm_rs.len(),
             (*resp).proof_ptr,
             (*resp).proof_len,
         );
@@ -579,24 +554,15 @@ unsafe fn sector_builder_lifecycle(use_live_store: bool) -> Result<(), Box<dyn E
         assert_eq!(format!("{:x?}", bytes_in), format!("{:x?}", bytes_out));
     }
 
-    // verify that the comm_p of the fourth piece generated by sealing matches
-    // the comm_p generated directly with its bytes written to a piece file
+    // storage client and miner should generate identical CommP for the same
+    // piece
     {
-        let resp = sector_builder_ffi_get_sealed_sectors(sector_builder_b, false);
-        defer!(sector_builder_ffi_destroy_get_sealed_sectors_response(resp));
+        let sealed_sector = get_sealed_sector(sector_builder_b, 124);
 
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
+        let pieces = slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len);
 
-        let sealed_sector_metadata: sector_builder_ffi_FFISealedSectorMetadata =
-            slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len)[0];
-
-        let pieces = slice::from_raw_parts(
-            sealed_sector_metadata.pieces_ptr,
-            sealed_sector_metadata.pieces_len,
-        );
-
+        // find the piece in the sealed sector whose key matches the key of
+        // the fourth piece which we added
         let piece = pieces
             .into_iter()
             .find(|&piece| {

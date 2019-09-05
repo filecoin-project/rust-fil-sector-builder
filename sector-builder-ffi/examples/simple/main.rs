@@ -16,7 +16,6 @@ use std::thread;
 use std::time::Duration;
 use std::{env, fs};
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use ffi_toolkit::{c_str_to_pbuf, c_str_to_rust_str, free_c_str, rust_str_to_c_str};
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -52,18 +51,6 @@ struct TestConfiguration {
 
 /// miscellaneous utility functions
 ///
-
-fn u64_to_fr_safe(n: u64) -> [u8; 31] {
-    let mut byte_vector = vec![];
-    byte_vector.write_u64::<LittleEndian>(n).unwrap();
-    byte_vector.resize(31, 0);
-
-    let mut byte_array = [0; 31];
-    let bytes = &byte_vector[..byte_array.len()]; // panics if not enough data
-    byte_array.copy_from_slice(bytes);
-
-    byte_array
-}
 
 struct MakePiece {
     file: NamedTempFile,
@@ -175,10 +162,10 @@ unsafe fn generate_piece_commitment<T: AsRef<Path>>(
     piece_path: T,
     piece_len: usize,
 ) -> [u8; 32] {
-    let resp = sector_builder_ffi_generate_piece_commitment(
-        rust_str_to_c_str(piece_path.as_ref().to_str().unwrap()),
-        piece_len as u64,
-    );
+    let piece_path_as_c_str = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
+    defer!(free_c_str(piece_path_as_c_str));
+
+    let resp = sector_builder_ffi_generate_piece_commitment(piece_path_as_c_str, piece_len as u64);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
     })));
@@ -368,7 +355,9 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     let sealed_dir_a = tempfile::tempdir().unwrap();
     let sealed_dir_b = tempfile::tempdir().unwrap();
 
-    let prover_id = u64_to_fr_safe(0);
+    let prover_id = [1u8; 31];
+
+    let mut ctx: MemContext = Default::default();
 
     let (a_ptr, max_bytes) = create_sector_builder(
         &metadata_dir_a,
@@ -388,8 +377,6 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
             cfg.max_bytes, max_bytes
         );
     }
-
-    let mut ctx: MemContext = Default::default();
 
     // verify that we have neither sealed nor staged sectors yet
     {

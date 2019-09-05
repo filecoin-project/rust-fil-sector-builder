@@ -21,7 +21,7 @@ use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use filecoin_proofs::error::ExpectWithBacktrace;
 use rand::{thread_rng, Rng};
 use std::path::Path;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 
 include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 
@@ -305,19 +305,19 @@ unsafe fn poll_for_sector_sealing_status(
     assert_eq!(now_sealed_sector_id, 124);
 }
 
-unsafe fn init_sector_builder(
+unsafe fn init_sector_builder<T: AsRef<Path>>(
     ctx: &mut MemContext,
-    metadata_dir: &TempDir,
-    staging_dir: &TempDir,
-    sealed_dir: &TempDir,
+    metadata_dir: T,
+    staging_dir: T,
+    sealed_dir: T,
     prover_id: [u8; 31],
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
 ) -> *mut sector_builder_ffi_SectorBuilder {
-    let c_metadata_dir = rust_str_to_c_str(metadata_dir.path().to_str().unwrap());
-    let c_sealed_dir = rust_str_to_c_str(sealed_dir.path().to_str().unwrap());
-    let c_staging_dir = rust_str_to_c_str(staging_dir.path().to_str().unwrap());
+    let c_metadata_dir = rust_str_to_c_str(metadata_dir.as_ref().to_str().unwrap());
+    let c_sealed_dir = rust_str_to_c_str(sealed_dir.as_ref().to_str().unwrap());
+    let c_staging_dir = rust_str_to_c_str(staging_dir.as_ref().to_str().unwrap());
 
     defer!({
         free_c_str(c_metadata_dir);

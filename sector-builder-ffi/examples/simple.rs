@@ -170,6 +170,22 @@ unsafe fn get_seal_status(
     (*resp).seal_status_code.clone()
 }
 
+unsafe fn generate_piece_commitment<T: AsRef<Path>>(
+    ctx: &mut MemContext,
+    piece_path: T,
+    piece_len: usize,
+) -> [u8; 32] {
+    let resp = sector_builder_ffi_generate_piece_commitment(
+        rust_str_to_c_str(piece_path.as_ref().to_str().unwrap()),
+        piece_len as u64,
+    );
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
+    })));
+
+    (*resp).comm_p.clone()
+}
+
 unsafe fn verify_seal(
     ctx: &mut MemContext,
     sector_size: u64,
@@ -226,6 +242,30 @@ unsafe fn get_sealed_sector(
         .expect("no sealed sector with id 124");
 
     sealed_sector
+}
+
+unsafe fn get_sealed_piece(
+    ctx: &mut MemContext,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    piece_key: &str,
+) -> sector_builder_ffi_FFIPieceMetadata {
+    let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .into_iter()
+        .find(|ss| ss.sector_id == sector_id)
+        .expect(&format!("no sealed sector with id={}", sector_id));
+
+    slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
+        .to_vec()
+        .into_iter()
+        .find(|&piece| {
+            let pk = c_str_to_rust_str(piece.piece_key).to_string();
+            &pk == piece_key
+        })
+        .expect(&format!(
+            "no piece with key={} in sector with id={}",
+            piece_key, sector_id
+        ))
 }
 
 unsafe fn poll_for_sector_sealing_status(
@@ -417,10 +457,21 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
     // add fourth piece that will trigger sealing in the first sector
-    let MakePiece { file, bytes, key } = make_piece(cfg.fourth_piece_bytes);
+    let MakePiece {
+        file: fourth_piece_file,
+        bytes: fourth_piece_bytes,
+        key: fourth_piece_key,
+    } = make_piece(cfg.fourth_piece_bytes);
     assert_eq!(
         124,
-        add_piece(&mut ctx, b_ptr, &key, file.path(), bytes.len(), 5000000)
+        add_piece(
+            &mut ctx,
+            b_ptr,
+            &fourth_piece_key,
+            fourth_piece_file.path(),
+            fourth_piece_bytes.len(),
+            5000000
+        )
     );
 
     // block until the sector has been sealed
@@ -434,7 +485,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     // after sealing, read the bytes (causes unseal) and compare with what we
     // added to the sector
     {
-        let c_piece_key = rust_str_to_c_str(key.clone());
+        let c_piece_key = rust_str_to_c_str(fourth_piece_key.clone());
         defer!(free_c_str(c_piece_key));
 
         let resp = sector_builder_ffi_read_piece_from_sealed_sector(b_ptr, c_piece_key);
@@ -450,7 +501,10 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         bytes_out.set_len(data_len);
         ptr::copy(data_ptr, bytes_out.as_mut_ptr(), data_len);
 
-        assert_eq!(format!("{:x?}", bytes), format!("{:x?}", bytes_out));
+        assert_eq!(
+            format!("{:x?}", fourth_piece_bytes),
+            format!("{:x?}", bytes_out)
+        );
     }
 
     // get sealed sector and verify the PoRep proof
@@ -475,32 +529,17 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     // storage client and miner should generate identical CommP for the same
     // piece
     {
-        let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
-
-        let pieces = slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len);
-
-        // find the piece in the sealed sector whose key matches the key of
-        // the fourth piece which we added
-        let piece = pieces
-            .into_iter()
-            .find(|&piece| {
-                let pk = c_str_to_rust_str(piece.piece_key).to_string();
-                &pk == &key
-            })
-            .expects("could not find piece with matching key");
-
-        let comm_p = piece.comm_p.clone();
-
         let mut file = NamedTempFile::new().expects("could not create named temp file");
-        let p = file.path().to_string_lossy().to_string();
-        let _ = file.write_all(&bytes);
-        let c_piece_path = rust_str_to_c_str(p);
-        defer!(free_c_str(c_piece_path));
+        let _ = file.write_all(&fourth_piece_bytes);
 
-        let resp = sector_builder_ffi_generate_piece_commitment(c_piece_path, piece.num_bytes);
-        defer!(sector_builder_ffi_destroy_generate_piece_commitment_response(resp));
-
-        assert_eq!(format!("{:x?}", comm_p), format!("{:x?}", (*resp).comm_p))
+        assert_eq!(
+            format!("{:x?}", get_sealed_piece(&mut ctx, b_ptr, 124, &fourth_piece_key).comm_p),
+            format!(
+                "{:x?}",
+                generate_piece_commitment(&mut ctx, fourth_piece_file.path(), fourth_piece_bytes.len())
+            ),
+            "client (generate_piece_commitment) and server (during seal) generated different piece commitments"
+        );
     }
 
     // get sealed sectors w/health checks

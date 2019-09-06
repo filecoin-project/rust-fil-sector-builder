@@ -36,7 +36,7 @@ struct TestConfiguration {
     third_piece_bytes: usize,
     fourth_piece_bytes: usize,
     max_num_staged_sectors: u8,
-    estimated_secs_to_seal_sector: u64,
+    max_secs_to_seal_sector: u64,
 }
 
 fn main() {
@@ -59,7 +59,7 @@ fn main() {
         third_piece_bytes: ((500.0 / 1024.0) * (sector_size as f64)) as usize,
         fourth_piece_bytes: ((200.0 / 1024.0) * (sector_size as f64)) as usize,
         max_num_staged_sectors: 2,
-        estimated_secs_to_seal_sector: 60 * 120,
+        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
     };
 
     info!("running FFI tests using cfg={:?}", cfg);
@@ -168,14 +168,14 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         a_ptr,
         124,
         sector_builder_ffi_FFISealStatus_Sealed,
-        cfg.estimated_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector * 2,
     );
 
     poll_for_sector_sealing_status(
         a_ptr,
         126,
         sector_builder_ffi_FFISealStatus_Sealed,
-        cfg.estimated_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector * 2,
     );
 
     // drop the first sector builder, relinquishing any locks on persistence

@@ -94,6 +94,10 @@ jobs:
       - image: filecoin/rust:latest
     working_directory: /mnt/crate
     resource_class: xlarge
+    parameters:
+      use_256M_sector_size:
+        type: boolean
+        default: false
     steps:
       - linux_configure_env
       - checkout
@@ -107,7 +111,7 @@ jobs:
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --package sector-builder-ffi
       - run:
           name: run regression tests (examples) against libsector_builder_ffi.a
-          command: RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu
+          command: <<# parameters.use_256M_sector_size >> TEST_LIVE_SEAL=true <</ parameters.use_256M_sector_size >> RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu
 
   test_ignored_release:
     docker:
@@ -268,6 +272,7 @@ workflows:
           requires:
             - cargo_fetch
       - ffi_regression:
+          use_256M_sector_size: false
           requires:
             - cargo_fetch
       - test_ignored_release:

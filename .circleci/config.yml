@@ -10,7 +10,7 @@ jobs:
       - configure_env
       - install_rust
       - run:
-          name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
+          name: Install paramfetch from head of rust-fil-proofs master branch
           command: |
             # install paramfetch
             cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
@@ -27,6 +27,7 @@ jobs:
           paths:
             - paramfetch-checksum.txt
       - save_parameter_cache
+
   cargo_fetch:
     docker:
       - image: filecoin/rust:latest
@@ -224,6 +225,10 @@ jobs:
       xcode: "10.0.0"
     working_directory: ~/crate
     resource_class: large
+    parameters:
+      create_github_release:
+        type: boolean
+        default: false
     steps:
       - configure_env
       - install_rust
@@ -243,7 +248,7 @@ jobs:
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --all
       - run:
           name: Publish release to GitHub
-          command: bash ./scripts/publish-release.sh
+          command: true; <<# parameters.create_github_release >> bash ./scripts/publish-release.sh <</ parameters.create_github_release >>
 
 workflows:
   version: 2
@@ -285,6 +290,14 @@ workflows:
             branches:
               only: master
       - build_darwin_release:
+          create_github_release: false
+          requires:
+            - cargo_fetch
+          filters:
+            branches:
+              ignore: master
+      - build_darwin_release:
+          create_github_release: true
           requires:
             - cargo_fetch
           filters:

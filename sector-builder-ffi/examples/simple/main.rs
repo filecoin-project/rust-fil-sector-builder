@@ -2,41 +2,30 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(improper_ctypes)]
+#![allow(dead_code)]
 
 #[macro_use(defer)]
 extern crate scopeguard;
 
-use std::error::Error;
 use std::io::Write;
-use std::ptr;
 use std::slice;
-use std::sync::atomic::AtomicPtr;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 use std::{env, fs};
 
-use ffi_toolkit::{c_str_to_pbuf, c_str_to_rust_str, free_c_str, rust_str_to_c_str};
+use ffi_toolkit::c_str_to_pbuf;
 use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
-use filecoin_proofs::error::ExpectWithBacktrace;
-use rand::{thread_rng, Rng};
-use std::path::Path;
 use tempfile::NamedTempFile;
 
-include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
+use deallocator::*;
+use helpers::*;
+use plumbing::*;
+use porcelain::*;
+use provingset::*;
 
-#[derive(Default)]
-struct MemContext {
-    destructors: Vec<Box<dyn Fn()>>,
-}
-
-impl Drop for MemContext {
-    fn drop(&mut self) {
-        for f in self.destructors.iter() {
-            f();
-        }
-    }
-}
+mod deallocator;
+mod helpers;
+mod plumbing;
+mod porcelain;
+mod provingset;
 
 struct TestConfiguration {
     first_piece_bytes: usize,
@@ -49,445 +38,9 @@ struct TestConfiguration {
     estimated_secs_to_seal_sector: u64,
 }
 
-/// miscellaneous utility functions
-///
-
-struct MakePiece {
-    file: NamedTempFile,
-    bytes: Vec<u8>,
-    key: String,
-}
-
-fn make_piece(num_bytes_in_piece: usize) -> MakePiece {
-    let mut rng = thread_rng();
-    let bytes: Vec<u8> = (0..num_bytes_in_piece).map(|_| rng.gen()).collect();
-    let key = (0..16)
-        .map(|_| (0x20u8 + (rand::random::<f32>() * 96.0) as u8) as char)
-        .collect();
-
-    // write piece bytes to a temporary file
-    let mut file = NamedTempFile::new().expects("could not create named temp file");
-    let _ = file.write_all(&bytes);
-
-    MakePiece { file, bytes, key }
-}
-
-/// wrappers for FFI calls
-///
-
-unsafe fn generate_post(
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    challenge_seed: [u8; 32],
-    proving_set: &ProvingSet,
-) -> Vec<u8> {
-    let flattened_comm_rs = proving_set.flattened_comm_rs();
-    let faulty_sector_ids = proving_set.faulty_sector_ids();
-
-    let resp = sector_builder_ffi_generate_post(
-        ptr,
-        flattened_comm_rs.as_ptr(),
-        flattened_comm_rs.len(),
-        &mut challenge_seed.clone(),
-        faulty_sector_ids.as_ptr(),
-        faulty_sector_ids.len(),
-    );
-    defer!(sector_builder_ffi_destroy_generate_post_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec()
-}
-
-struct ProvingSet(Vec<PoStSectorInfo>);
-
-impl ProvingSet {
-    fn new(mut ps: Vec<PoStSectorInfo>) -> ProvingSet {
-        ps.sort_by(|a, b| a.sector_id.partial_cmp(&b.sector_id).unwrap());
-        ProvingSet(ps)
-    }
-
-    fn faulty_sector_ids(&self) -> Vec<u64> {
-        self.0
-            .iter()
-            .filter(|PoStSectorInfo { is_healthy, .. }| *is_healthy == false)
-            .map(|PoStSectorInfo { sector_id, .. }| *sector_id)
-            .collect()
-    }
-
-    fn flattened_comm_rs(&self) -> Vec<u8> {
-        self.0.iter().fold(vec![], |mut acc, item| {
-            acc.append(&mut item.comm_r.to_vec());
-            acc
-        })
-    }
-
-    fn all_sector_ids(&self) -> Vec<u64> {
-        self.0
-            .iter()
-            .map(|PoStSectorInfo { sector_id, .. }| *sector_id)
-            .collect()
-    }
-}
-
-struct PoStSectorInfo {
-    sector_id: u64,
-    comm_r: [u8; 32],
-    is_healthy: bool,
-}
-
-unsafe fn verify_post(
-    sector_size: u64,
-    challenge_seed: [u8; 32],
-    proving_set: &ProvingSet,
-    proof: &[u8],
-) -> bool {
-    let sector_ids = proving_set.all_sector_ids();
-    let flattened_comm_rs = proving_set.flattened_comm_rs();
-    let faulty_sector_ids = proving_set.faulty_sector_ids();
-
-    let resp = sector_builder_ffi_verify_post(
-        sector_size,
-        &mut challenge_seed.clone(),
-        sector_ids.as_ptr(),
-        sector_ids.len(),
-        faulty_sector_ids.as_ptr(),
-        faulty_sector_ids.len(),
-        flattened_comm_rs.as_ptr(),
-        flattened_comm_rs.len(),
-        proof.as_ptr(),
-        proof.len(),
-    );
-    defer!(sector_builder_ffi_destroy_verify_post_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).is_valid.clone()
-}
-
-unsafe fn get_sealed_sectors(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    with_health: bool,
-) -> Vec<sector_builder_ffi_FFISealedSectorMetadata> {
-    let resp = sector_builder_ffi_get_sealed_sectors(ptr, with_health);
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_get_sealed_sectors_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
-}
-
-unsafe fn get_staged_sectors(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-) -> Vec<sector_builder_ffi_FFIStagedSectorMetadata> {
-    let resp = sector_builder_ffi_get_staged_sectors(ptr);
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_get_staged_sectors_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
-}
-
-unsafe fn add_piece<T: AsRef<Path>>(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    piece_key: &str,
-    piece_path: T,
-    piece_len: usize,
-    store_until_utc_secs: u64,
-) -> u64 {
-    let c_piece_key = rust_str_to_c_str(piece_key);
-    defer!(free_c_str(c_piece_key));
-
-    let c_piece_path = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
-    defer!(free_c_str(c_piece_path));
-
-    let resp = sector_builder_ffi_add_piece(
-        ptr,
-        c_piece_key,
-        piece_len as u64,
-        c_piece_path,
-        store_until_utc_secs,
-    );
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_add_piece_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).sector_id.clone()
-}
-
-unsafe fn get_seal_status(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    sector_id: u64,
-) -> sector_builder_ffi_FFISealStatus {
-    let resp = sector_builder_ffi_get_seal_status(ptr, sector_id);
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_get_seal_status_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).seal_status_code.clone()
-}
-
-unsafe fn read_piece_from_sealed_sector(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    piece_key: &str,
-) -> Vec<u8> {
-    let c_piece_key = rust_str_to_c_str(piece_key);
-    defer!(free_c_str(c_piece_key));
-
-    let resp = sector_builder_ffi_read_piece_from_sealed_sector(ptr, c_piece_key);
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec()
-}
-
-unsafe fn generate_piece_commitment<T: AsRef<Path>>(
-    ctx: &mut MemContext,
-    piece_path: T,
-    piece_len: usize,
-) -> [u8; 32] {
-    let piece_path_as_c_str = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
-    defer!(free_c_str(piece_path_as_c_str));
-
-    let resp = sector_builder_ffi_generate_piece_commitment(piece_path_as_c_str, piece_len as u64);
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
-    })));
-
-    (*resp).comm_p.clone()
-}
-
-unsafe fn verify_seal(
-    ctx: &mut MemContext,
-    sector_size: u64,
-    sector_id: u64,
-    proof: &[u8],
-    comm_r: [u8; 32],
-    comm_d: [u8; 32],
-    comm_r_star: [u8; 32],
-    prover_id: [u8; 31],
-) -> bool {
-    let resp = sector_builder_ffi_verify_seal(
-        sector_size,
-        &mut comm_r.clone(),
-        &mut comm_d.clone(),
-        &mut comm_r_star.clone(),
-        &mut prover_id.clone(),
-        sector_id,
-        proof.as_ptr(),
-        proof.len(),
-    );
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_verify_seal_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).is_valid.clone()
-}
-
-/// compound operations
-///
-
-unsafe fn get_sealed_sector(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    sector_id: u64,
-) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let sealed_sector = get_sealed_sectors(ctx, ptr, true)
-        .into_iter()
-        .find(|ss| ss.sector_id == sector_id)
-        .expect("no sealed sector with id 124");
-
-    sealed_sector
-}
-
-unsafe fn get_sealed_piece(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    sector_id: u64,
-    piece_key: &str,
-) -> sector_builder_ffi_FFIPieceMetadata {
-    let sealed_sector = get_sealed_sectors(ctx, ptr, true)
-        .into_iter()
-        .find(|ss| ss.sector_id == sector_id)
-        .expect(&format!("no sealed sector with id={}", sector_id));
-
-    slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
-        .to_vec()
-        .into_iter()
-        .find(|&piece| {
-            let pk = c_str_to_rust_str(piece.piece_key).to_string();
-            &pk == piece_key
-        })
-        .expect(&format!(
-            "no piece with key={} in sector with id={}",
-            piece_key, sector_id
-        ))
-}
-
-unsafe fn get_max_user_bytes_per_staged_sector(sector_size: u64) -> u64 {
-    sector_builder_ffi_get_max_user_bytes_per_staged_sector(sector_size)
-}
-
-unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_SectorBuilder) {
-    sector_builder_ffi_destroy_sector_builder(p);
-    p = ptr::null_mut();
-    assert!(p.is_null());
-}
-
-unsafe fn get_sector_info(
-    mut ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-) -> Vec<PoStSectorInfo> {
-    get_sealed_sectors(&mut ctx, ptr, true)
-        .into_iter()
-        .map(|ss| PoStSectorInfo {
-            sector_id: ss.sector_id,
-            comm_r: ss.comm_r,
-            is_healthy: ss.health == sector_builder_ffi_FFISealedSectorHealth_Ok,
-        })
-        .collect()
-}
-
-unsafe fn poll_for_sector_sealing_status(
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-    sector_id: u64,
-    target_status: sector_builder_ffi_FFISealStatus,
-    max_wait_secs: u64,
-) -> () {
-    let (result_tx, result_rx) = mpsc::channel();
-    let (kill_tx, kill_rx) = mpsc::channel();
-
-    let atomic_ptr = AtomicPtr::new(ptr);
-
-    let _join_handle = thread::spawn(move || {
-        let sector_builder = atomic_ptr.into_inner();
-
-        loop {
-            match kill_rx.try_recv() {
-                Ok(_) => return,
-                _ => (),
-            };
-
-            if get_seal_status(&mut Default::default(), sector_builder, sector_id) == target_status
-            {
-                let _ = result_tx.send(sector_id).unwrap();
-            }
-
-            thread::sleep(Duration::from_millis(1000));
-        }
-    });
-
-    defer!({
-        let _ = kill_tx.send(true).unwrap();
-    });
-
-    let now_sealed_sector_id = result_rx
-        .recv_timeout(Duration::from_secs(max_wait_secs))
-        .unwrap();
-
-    assert_eq!(now_sealed_sector_id, 124);
-}
-
-unsafe fn verify_piece_inclusion_proof(
-    sector_size: u64,
-    comm_d: [u8; 32],
-    comm_p: [u8; 32],
-    proof: &[u8],
-    piece_len: usize,
-) -> bool {
-    let resp = sector_builder_ffi_verify_piece_inclusion_proof(
-        &mut comm_d.clone(),
-        &mut comm_p.clone(),
-        proof.as_ptr(),
-        proof.len(),
-        piece_len as u64,
-        sector_size as u64,
-    );
-    defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg));
-    }
-
-    (*resp).is_valid.clone()
-}
-
-unsafe fn init_sector_builder<T: AsRef<Path>>(
-    ctx: &mut MemContext,
-    metadata_dir: T,
-    staging_dir: T,
-    sealed_dir: T,
-    prover_id: [u8; 31],
-    last_committed_sector_id: u64,
-    sector_class: sector_builder_ffi_FFISectorClass,
-    max_num_staged_sectors: u8,
-) -> *mut sector_builder_ffi_SectorBuilder {
-    let c_metadata_dir = rust_str_to_c_str(metadata_dir.as_ref().to_str().unwrap());
-    let c_sealed_dir = rust_str_to_c_str(sealed_dir.as_ref().to_str().unwrap());
-    let c_staging_dir = rust_str_to_c_str(staging_dir.as_ref().to_str().unwrap());
-
-    defer!({
-        free_c_str(c_metadata_dir);
-        free_c_str(c_sealed_dir);
-        free_c_str(c_staging_dir);
-    });
-
-    let resp = sector_builder_ffi_init_sector_builder(
-        sector_class,
-        last_committed_sector_id,
-        c_metadata_dir,
-        &mut prover_id.clone(),
-        c_sealed_dir,
-        c_staging_dir,
-        max_num_staged_sectors,
-    );
-    defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_init_sector_builder_response(resp);
-    })));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
-    }
-
-    (*resp).sector_builder
-}
-
 /// lifecycle test
 
-unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn Error>> {
+unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure::Error> {
     let metadata_dir_a = tempfile::tempdir().unwrap();
     let metadata_dir_b = tempfile::tempdir().unwrap();
     let staging_dir_a = tempfile::tempdir().unwrap();
@@ -497,7 +50,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
 
     let prover_id = [1u8; 31];
 
-    let mut ctx: MemContext = Default::default();
+    let mut ctx: Deallocator = Default::default();
 
     let a_ptr = init_sector_builder(
         &mut ctx,
@@ -653,7 +206,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
     // storage client and miner should generate identical CommP for the same
     // piece
     {
-        let mut file = NamedTempFile::new().expects("could not create named temp file");
+        let mut file = NamedTempFile::new().expect("could not create named temp file");
         let _ = file.write_all(&fourth_piece_bytes);
 
         assert_eq!(

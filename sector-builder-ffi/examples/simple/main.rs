@@ -73,12 +73,12 @@ fn main() {
 }
 
 unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure::Error> {
-    let metadata_dir_a = tempfile::tempdir().unwrap();
-    let metadata_dir_b = tempfile::tempdir().unwrap();
-    let staging_dir_a = tempfile::tempdir().unwrap();
-    let staging_dir_b = tempfile::tempdir().unwrap();
-    let sealed_dir_a = tempfile::tempdir().unwrap();
-    let sealed_dir_b = tempfile::tempdir().unwrap();
+    let metadata_dir_a = tempfile::tempdir()?;
+    let metadata_dir_b = tempfile::tempdir()?;
+    let staging_dir_a = tempfile::tempdir()?;
+    let staging_dir_b = tempfile::tempdir()?;
+    let sealed_dir_a = tempfile::tempdir()?;
+    let sealed_dir_b = tempfile::tempdir()?;
 
     let prover_id = [1u8; 31];
 
@@ -180,7 +180,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
     };
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
-    // add fourth piece that will trigger sealing in the first sector
+    // add fourth piece, which triggers sealing of the first sector
     let MakePiece {
         file: fourth_piece_file,
         bytes: fourth_piece_bytes,
@@ -206,8 +206,8 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         cfg.estimated_secs_to_seal_sector,
     );
 
-    // after sealing, read the bytes (causes unseal) and compare with what we
-    // added to the sector
+    // after sealing, read the bytes (triggering unseal) and compare with what
+    // we've added to the sector
     {
         let unsealed_bytes = read_piece_from_sealed_sector(&mut ctx, b_ptr, &fourth_piece_key);
         assert_eq!(
@@ -216,7 +216,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         );
     }
 
-    // get sealed sector and verify the PoRep proof
+    // get sealed sector and verify the proof
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 

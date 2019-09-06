@@ -8,6 +8,7 @@ jobs:
     resource_class: xlarge
     steps:
       - configure_env
+      - install_rust
       - run:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
@@ -33,6 +34,7 @@ jobs:
     resource_class: xlarge
     steps:
       - configure_env
+      - install_rust
       - checkout
       - run:
           name: Calculate dependencies
@@ -224,11 +226,8 @@ jobs:
     resource_class: large
     steps:
       - configure_env
+      - install_rust
       - checkout
-      - run:
-          name: Install Rust
-          command: |
-            curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: cargo update
@@ -304,6 +303,7 @@ commands:
             echo 'export CARGO_HOME=/tmp/cargo' >> $BASH_ENV
             echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
             echo 'export CIRCLE_ARTIFACTS=/tmp/circle-ci-artifacts' >> $BASH_ENV
+            echo 'export PATH="${CARGO_HOME}/bin:${PATH}"' >> $BASH_ENV
             source $BASH_ENV
   restore_parameter_cache:
     steps:
@@ -328,3 +328,9 @@ commands:
           paths:
             - /tmp/cargo
             - /tmp/rustup
+  install_rust:
+    steps:
+      - run:
+          name: Install Rust
+          command: |
+            curl https://sh.rustup.rs -sSf | sh -s -- -y

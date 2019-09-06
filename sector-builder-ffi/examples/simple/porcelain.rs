@@ -97,5 +97,5 @@ pub(crate) unsafe fn poll_for_sector_sealing_status(
         .recv_timeout(Duration::from_secs(max_wait_secs))
         .unwrap();
 
-    assert_eq!(now_sealed_sector_id, 124);
+    assert_eq!(now_sealed_sector_id, sector_id);
 }

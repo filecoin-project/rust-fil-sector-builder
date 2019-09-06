@@ -217,7 +217,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
             &staging_dir_b,
             &sealed_dir_b,
             prover_id,
-            123,
+            126,
             cfg.sector_class,
             cfg.max_num_staged_sectors,
         )

@@ -25,7 +25,7 @@ jobs:
           name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
           command: |
             # install paramfetch
-            cargo install filecoin-proofs --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
+            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
       - run:
           name: create paramfetch checksum

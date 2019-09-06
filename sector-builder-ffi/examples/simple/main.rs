@@ -148,6 +148,50 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         assert_eq!(2, staged_sectors.len());
     }
 
+    // add fourth piece, which triggers sealing of the first sector
+    let MakePiece {
+        file: fourth_piece_file,
+        bytes: fourth_piece_bytes,
+        key: fourth_piece_key,
+    } = make_piece(cfg.fourth_piece_bytes);
+    assert_eq!(
+        124,
+        add_piece(
+            &mut ctx,
+            a_ptr,
+            &fourth_piece_key,
+            fourth_piece_file.path(),
+            fourth_piece_bytes.len(),
+            5000000
+        )
+    );
+
+    // add fifth piece, which completely fills a staged sector (and triggers
+    // sealing)
+    {
+        let MakePiece { file, bytes, key } = make_piece(cfg.max_bytes as usize);
+        assert_eq!(
+            126,
+            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+        );
+    }
+
+    // block until both sectors have been sealed - note that we won't know which
+    // of the two sectors will seal first
+    poll_for_sector_sealing_status(
+        a_ptr,
+        124,
+        sector_builder_ffi_FFISealStatus_Sealed,
+        cfg.estimated_secs_to_seal_sector * 2,
+    );
+
+    poll_for_sector_sealing_status(
+        a_ptr,
+        126,
+        sector_builder_ffi_FFISealStatus_Sealed,
+        cfg.estimated_secs_to_seal_sector * 2,
+    );
+
     // drop the first sector builder, relinquishing any locks on persistence
     destroy_sector_builder(a_ptr);
 
@@ -179,32 +223,6 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         )
     };
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
-
-    // add fourth piece, which triggers sealing of the first sector
-    let MakePiece {
-        file: fourth_piece_file,
-        bytes: fourth_piece_bytes,
-        key: fourth_piece_key,
-    } = make_piece(cfg.fourth_piece_bytes);
-    assert_eq!(
-        124,
-        add_piece(
-            &mut ctx,
-            b_ptr,
-            &fourth_piece_key,
-            fourth_piece_file.path(),
-            fourth_piece_bytes.len(),
-            5000000
-        )
-    );
-
-    // block until the sector has been sealed
-    poll_for_sector_sealing_status(
-        b_ptr,
-        124,
-        sector_builder_ffi_FFISealStatus_Sealed,
-        cfg.estimated_secs_to_seal_sector,
-    );
 
     // after sealing, read the bytes (triggering unseal) and compare with what
     // we've added to the sector
@@ -253,15 +271,15 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
 
     // get sealed sectors w/health checks
     {
-        assert_eq!(1, get_sealed_sectors(&mut ctx, b_ptr, true).len());
+        assert_eq!(2, get_sealed_sectors(&mut ctx, b_ptr, true).len());
 
         assert_eq!(
-            get_sealed_sector(&mut ctx, b_ptr, 124).health,
+            get_sealed_sector(&mut ctx, b_ptr, 126).health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
 
         let sealed_sector_path = sealed_dir_b.path().join(c_str_to_pbuf(
-            get_sealed_sector(&mut ctx, b_ptr, 124).sector_access,
+            get_sealed_sector(&mut ctx, b_ptr, 126).sector_access,
         ));
 
         let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
@@ -275,17 +293,8 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
 
         // invalid checksum
         assert_eq!(
-            get_sealed_sector(&mut ctx, b_ptr, 124).health,
+            get_sealed_sector(&mut ctx, b_ptr, 126).health,
             sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
-        );
-
-        // restore
-        std::fs::write(&sealed_sector_path, &content).expect("failed to restore sector");
-
-        // checksum is now valid
-        assert_eq!(
-            get_sealed_sector(&mut ctx, b_ptr, 124).health,
-            sector_builder_ffi_FFISealedSectorHealth_Ok
         );
     }
 

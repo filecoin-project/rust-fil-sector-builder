@@ -12,9 +12,7 @@ jobs:
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: rustup component add rustfmt-preview
@@ -29,19 +27,21 @@ jobs:
             # install paramfetch
             cargo install filecoin-proofs --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
-
-            # compute and cache Groth parameters for all sector sizes
-            paramcache
+      - run:
+          name: create paramfetch checksum
+          command: md5sum $(which paramfetch) | cut -d ' ' -f 1 >> paramfetch-checksum.txt
+      - restore_parameter_cache
+      - run:
+          name: Generate Groth parameters and verifying keys
+          command: paramcache
       - persist_to_workspace:
           root: "."
           paths:
             - Cargo.lock
-      - save_cache:
-          key: cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
-          paths:
-            - /root/.cargo
-            - /root/.rustup
-            - /root/.filecoin-parameter-cache
+            - paramfetch-checksum.txt
+      - save_parameter_cache
+      - save_rust_cache
+
   test:
     docker:
       - image: filecoin/rust:latest
@@ -52,9 +52,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (stable)
           command: cargo +stable test --verbose --all
@@ -80,9 +78,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (stable) in release profile
           command: |
@@ -103,9 +99,8 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_parameter_cache
+      - restore_rust_cache
       - run:
           name: Build the static lib for linking into the example
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --package sector-builder-ffi
@@ -123,9 +118,8 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_parameter_cache
+      - restore_rust_cache
       - run:
           name: Test (stable) in release profile
           command: cargo +stable test --verbose --release --all -- --ignored
@@ -140,9 +134,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (nightly)
           command: cargo +$(cat rust-toolchain) test --verbose --all
@@ -158,9 +150,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Benchmarks (nightly)
           command: cargo +$(cat rust-toolchain) build --benches --verbose --all
@@ -176,9 +166,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Run cargo fmt
           command: cargo fmt --all -- --check
@@ -193,9 +181,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Run cargo clippy
           command: cargo clippy --all
@@ -210,9 +196,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Install jq
           command: apt-get install jq -yqq
@@ -310,3 +294,26 @@ commands:
             echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
             echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
             source $BASH_ENV
+  restore_parameter_cache:
+    steps:
+      - restore_cache:
+          key: cargo-v4b-{{ checksum "paramfetch-checksum.txt" }}
+          paths:
+            - /root/.filecoin-parameter-cache
+  restore_rust_cache:
+    steps:
+      - restore_cache:
+          key: cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+  save_parameter_cache:
+    steps:
+      - save_cache:
+          key: cargo-v4b-{{ checksum "paramfetch-checksum.txt" }}
+          paths:
+            - /root/.filecoin-parameter-cache
+  save_rust_cache:
+    steps:
+      - save_cache:
+          key: cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+          paths:
+            - /root/.cargo
+            - /root/.rustup

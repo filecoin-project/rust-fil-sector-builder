@@ -1,6 +1,31 @@
 version: 2.1
 
 jobs:
+  obtain_parameters:
+    docker:
+      - image: filecoin/rust:latest
+    working_directory: /mnt/crate
+    resource_class: xlarge
+    steps:
+      - configure_env
+      - run:
+          name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
+          command: |
+            # install paramfetch
+            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
+            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
+      - run:
+          name: create paramfetch checksum
+          command: md5sum $(which paramfetch) | cut -d ' ' -f 1 >> paramfetch-checksum.txt
+      - restore_parameter_cache
+      - run:
+          name: Generate Groth parameters and verifying keys
+          command: paramcache
+      - persist_to_workspace:
+          root: "."
+          paths:
+            - paramfetch-checksum.txt
+      - save_parameter_cache
   cargo_fetch:
     docker:
       - image: filecoin/rust:latest
@@ -21,25 +46,10 @@ jobs:
       - run: cargo fetch
       - run: rustc +stable --version
       - run: rustc +$(cat rust-toolchain) --version
-      - run:
-          name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
-          command: |
-            # install paramfetch
-            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
-            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
-      - run:
-          name: create paramfetch checksum
-          command: md5sum $(which paramfetch) | cut -d ' ' -f 1 >> paramfetch-checksum.txt
-      - restore_parameter_cache
-      - run:
-          name: Generate Groth parameters and verifying keys
-          command: paramcache
       - persist_to_workspace:
           root: "."
           paths:
             - Cargo.lock
-            - paramfetch-checksum.txt
-      - save_parameter_cache
       - save_rust_cache
 
   test:
@@ -240,6 +250,7 @@ workflows:
   version: 2
   test_all:
     jobs:
+      - obtain_parameters
       - cargo_fetch
       - rustfmt:
           requires:
@@ -254,9 +265,11 @@ workflows:
           use_256M_sector_size: false
           requires:
             - cargo_fetch
+            - obtain_parameters
       - test_ignored_release:
           requires:
             - cargo_fetch
+            - obtain_parameters
       - test:
           requires:
             - cargo_fetch

@@ -104,9 +104,9 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     parameters:
-      use_256M_sector_size:
-        type: boolean
-        default: false
+      sector_size:
+        type: integer
+        default: 1024
     steps:
       - configure_env
       - checkout
@@ -115,11 +115,8 @@ jobs:
       - restore_parameter_cache
       - restore_rust_cache
       - run:
-          name: Build the static lib for linking into the example
-          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --package sector-builder-ffi
-      - run:
           name: run regression tests (examples) against libsector_builder_ffi.a
-          command: <<# parameters.use_256M_sector_size >> TEST_LIVE_SEAL=true <</ parameters.use_256M_sector_size >> RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu
+          command: RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu -- << parameters.sector_size >>
 
   test_ignored_release:
     docker:
@@ -266,15 +263,12 @@ workflows:
           requires:
             - cargo_fetch
       - ffi_regression:
-          use_256M_sector_size: false
+          sector_size: 1024
           requires:
             - cargo_fetch
             - obtain_parameters
-          filters:
-            branches:
-              ignore: master
       - ffi_regression:
-          use_256M_sector_size: true
+          sector_size: 268435456
           requires:
             - cargo_fetch
             - obtain_parameters

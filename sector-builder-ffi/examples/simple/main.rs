@@ -75,6 +75,99 @@ fn make_piece(num_bytes_in_piece: usize) -> MakePiece {
 /// wrappers for FFI calls
 ///
 
+unsafe fn generate_post(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    challenge_seed: [u8; 32],
+    proving_set: &ProvingSet,
+) -> Vec<u8> {
+    let flattened_comm_rs = proving_set.flattened_comm_rs();
+    let faulty_sector_ids = proving_set.faulty_sector_ids();
+
+    let resp = sector_builder_ffi_generate_post(
+        ptr,
+        flattened_comm_rs.as_ptr(),
+        flattened_comm_rs.len(),
+        &mut challenge_seed.clone(),
+        faulty_sector_ids.as_ptr(),
+        faulty_sector_ids.len(),
+    );
+    defer!(sector_builder_ffi_destroy_generate_post_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec()
+}
+
+struct ProvingSet(Vec<PoStSectorInfo>);
+
+impl ProvingSet {
+    fn new(mut ps: Vec<PoStSectorInfo>) -> ProvingSet {
+        ps.sort_by(|a, b| a.sector_id.partial_cmp(&b.sector_id).unwrap());
+        ProvingSet(ps)
+    }
+
+    fn faulty_sector_ids(&self) -> Vec<u64> {
+        self.0
+            .iter()
+            .filter(|PoStSectorInfo { is_healthy, .. }| *is_healthy == false)
+            .map(|PoStSectorInfo { sector_id, .. }| *sector_id)
+            .collect()
+    }
+
+    fn flattened_comm_rs(&self) -> Vec<u8> {
+        self.0.iter().fold(vec![], |mut acc, item| {
+            acc.append(&mut item.comm_r.to_vec());
+            acc
+        })
+    }
+
+    fn all_sector_ids(&self) -> Vec<u64> {
+        self.0
+            .iter()
+            .map(|PoStSectorInfo { sector_id, .. }| *sector_id)
+            .collect()
+    }
+}
+
+struct PoStSectorInfo {
+    sector_id: u64,
+    comm_r: [u8; 32],
+    is_healthy: bool,
+}
+
+unsafe fn verify_post(
+    sector_size: u64,
+    challenge_seed: [u8; 32],
+    proving_set: &ProvingSet,
+    proof: &[u8],
+) -> bool {
+    let sector_ids = proving_set.all_sector_ids();
+    let flattened_comm_rs = proving_set.flattened_comm_rs();
+    let faulty_sector_ids = proving_set.faulty_sector_ids();
+
+    let resp = sector_builder_ffi_verify_post(
+        sector_size,
+        &mut challenge_seed.clone(),
+        sector_ids.as_ptr(),
+        sector_ids.len(),
+        faulty_sector_ids.as_ptr(),
+        faulty_sector_ids.len(),
+        flattened_comm_rs.as_ptr(),
+        flattened_comm_rs.len(),
+        proof.as_ptr(),
+        proof.len(),
+    );
+    defer!(sector_builder_ffi_destroy_verify_post_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+
+    (*resp).is_valid.clone()
+}
+
 unsafe fn get_sealed_sectors(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -227,17 +320,6 @@ unsafe fn verify_seal(
 /// compound operations
 ///
 
-unsafe fn get_faulty_sector_ids(
-    ctx: &mut MemContext,
-    ptr: *mut sector_builder_ffi_SectorBuilder,
-) -> Vec<u64> {
-    get_sealed_sectors(ctx, ptr, true)
-        .iter()
-        .filter(|ss| ss.health != sector_builder_ffi_FFISealedSectorHealth_Ok)
-        .map(|ss| ss.sector_id)
-        .collect()
-}
-
 unsafe fn get_sealed_sector(
     ctx: &mut MemContext,
     ptr: *mut sector_builder_ffi_SectorBuilder,
@@ -285,6 +367,20 @@ unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_SectorBuilder) {
     assert!(p.is_null());
 }
 
+unsafe fn get_sector_info(
+    mut ctx: &mut MemContext,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+) -> Vec<PoStSectorInfo> {
+    get_sealed_sectors(&mut ctx, ptr, true)
+        .into_iter()
+        .map(|ss| PoStSectorInfo {
+            sector_id: ss.sector_id,
+            comm_r: ss.comm_r,
+            is_healthy: ss.health == sector_builder_ffi_FFISealedSectorHealth_Ok,
+        })
+        .collect()
+}
+
 unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
@@ -323,6 +419,30 @@ unsafe fn poll_for_sector_sealing_status(
         .unwrap();
 
     assert_eq!(now_sealed_sector_id, 124);
+}
+
+unsafe fn verify_piece_inclusion_proof(
+    sector_size: u64,
+    comm_d: [u8; 32],
+    comm_p: [u8; 32],
+    proof: &[u8],
+    piece_len: usize,
+) -> bool {
+    let resp = sector_builder_ffi_verify_piece_inclusion_proof(
+        &mut comm_d.clone(),
+        &mut comm_p.clone(),
+        proof.as_ptr(),
+        proof.len(),
+        piece_len as u64,
+        sector_size as u64,
+    );
+    defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg));
+    }
+
+    (*resp).is_valid.clone()
 }
 
 unsafe fn init_sector_builder<T: AsRef<Path>>(
@@ -584,87 +704,39 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), Box<dyn
         );
     }
 
-    // verify pips
+    // verify piece inclusion proofs
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 
-        let mut comm_d = sealed_sector.comm_d.clone();
-
-        let pieces = slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len);
-
-        for piece in pieces {
-            let mut comm_p = piece.comm_p.clone();
-
-            let resp = sector_builder_ffi_verify_piece_inclusion_proof(
-                &mut comm_d,
-                &mut comm_p,
-                piece.piece_inclusion_proof_ptr,
-                piece.piece_inclusion_proof_len,
-                piece.num_bytes,
-                cfg.sector_class.sector_size,
+        for piece in slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len) {
+            assert!(
+                verify_piece_inclusion_proof(
+                    cfg.sector_class.sector_size,
+                    sealed_sector.comm_d.clone(),
+                    piece.comm_p,
+                    slice::from_raw_parts(
+                        piece.piece_inclusion_proof_ptr,
+                        piece.piece_inclusion_proof_len
+                    ),
+                    piece.num_bytes as usize
+                ),
+                "PIP invalid"
             );
-            defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
-
-            if (*resp).status_code != 0 {
-                panic!("{}", c_str_to_rust_str((*resp).error_msg));
-            }
-
-            assert!((*resp).is_valid);
         }
     }
 
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
-        let comm_rs =
-            get_sealed_sectors(&mut ctx, b_ptr, true)
-                .iter()
-                .fold(vec![], |mut acc, item| {
-                    acc.append(&mut item.comm_r.to_vec());
-                    acc
-                });
+        let challenge_seed = [1u8; 32];
 
-        let faulty_sector_ids = get_faulty_sector_ids(&mut ctx, b_ptr);
+        let pset = ProvingSet::new(get_sector_info(&mut ctx, b_ptr));
 
-        let mut challenge_seed = [1u8; 32];
+        let proof = generate_post(b_ptr, challenge_seed, &pset);
 
-        let resp = sector_builder_ffi_generate_post(
-            b_ptr,
-            comm_rs.as_ptr(),
-            comm_rs.len(),
-            &mut challenge_seed,
-            faulty_sector_ids.as_ptr(),
-            faulty_sector_ids.len(),
+        assert!(
+            verify_post(cfg.sector_class.sector_size, challenge_seed, &pset, &proof),
+            "PoSt was invalid"
         );
-        defer!(sector_builder_ffi_destroy_generate_post_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        let sector_ids: Vec<u64> = get_sealed_sectors(&mut ctx, b_ptr, true)
-            .iter()
-            .map(|ss| ss.sector_id)
-            .collect();
-
-        let resp = sector_builder_ffi_verify_post(
-            cfg.sector_class.sector_size,
-            &mut challenge_seed,
-            sector_ids.as_ptr(),
-            sector_ids.len(),
-            faulty_sector_ids.as_ptr(),
-            faulty_sector_ids.len(),
-            comm_rs.as_ptr(),
-            comm_rs.len(),
-            (*resp).proof_ptr,
-            (*resp).proof_len,
-        );
-        defer!(sector_builder_ffi_destroy_verify_post_response(resp));
-
-        if (*resp).status_code != 0 {
-            panic!("{}", c_str_to_rust_str((*resp).error_msg))
-        }
-
-        assert!((*resp).is_valid)
     }
 
     Ok(())

@@ -7,7 +7,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - run:
           name: Calculate dependencies
@@ -48,7 +48,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -74,7 +74,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -95,7 +95,7 @@ jobs:
         type: boolean
         default: false
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -114,7 +114,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -130,7 +130,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -146,7 +146,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -162,7 +162,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -177,7 +177,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -192,7 +192,7 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
@@ -213,12 +213,7 @@ jobs:
     working_directory: ~/crate
     resource_class: large
     steps:
-      - run:
-          name: Configure environment variables
-          command: |
-            echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export PATH="${HOME}/.cargo/bin:${HOME}/.bin:${PATH}"' >> $BASH_ENV
-            echo 'export CIRCLE_ARTIFACTS="/tmp"' >> $BASH_ENV
+      - configure_env
       - checkout
       - run:
           name: Install Rust
@@ -285,21 +280,24 @@ workflows:
               only: master
 
 commands:
-  linux_configure_env:
+  configure_env:
     steps:
       - run:
           name: Configure environment variables
           command: |
             echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
+            echo 'export FILECOIN_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
             echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
+            echo 'export CARGO_HOME=/tmp/cargo' >> $BASH_ENV
+            echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
+            echo 'export CIRCLE_ARTIFACTS=/tmp/circle-ci-artifacts' >> $BASH_ENV
             source $BASH_ENV
   restore_parameter_cache:
     steps:
       - restore_cache:
           key: cargo-v4b-{{ checksum "paramfetch-checksum.txt" }}
           paths:
-            - /root/.filecoin-parameter-cache
+            - /tmp/filecoin-parameter-cache
   restore_rust_cache:
     steps:
       - restore_cache:
@@ -309,11 +307,11 @@ commands:
       - save_cache:
           key: cargo-v4b-{{ checksum "paramfetch-checksum.txt" }}
           paths:
-            - /root/.filecoin-parameter-cache
+            - /tmp/filecoin-parameter-cache
   save_rust_cache:
     steps:
       - save_cache:
           key: cargo-v4b-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
           paths:
-            - /root/.cargo
-            - /root/.rustup
+            - /tmp/cargo
+            - /tmp/rustup

@@ -38,7 +38,39 @@ struct TestConfiguration {
     estimated_secs_to_seal_sector: u64,
 }
 
-/// lifecycle test
+fn main() {
+    let cfg = if env::var("TEST_LIVE_SEAL").is_ok() {
+        TestConfiguration {
+            sector_class: sector_builder_ffi_FFISectorClass {
+                sector_size: LIVE_SECTOR_SIZE,
+                porep_proof_partitions: 2,
+            },
+            max_bytes: 1016 * 1024 * 256,
+            first_piece_bytes: 400 * 1024 * 256,
+            second_piece_bytes: 200 * 1024 * 256,
+            third_piece_bytes: 500 * 1024 * 256,
+            fourth_piece_bytes: 200 * 1024 * 256,
+            max_num_staged_sectors: 2,
+            estimated_secs_to_seal_sector: 60 * 120,
+        }
+    } else {
+        TestConfiguration {
+            sector_class: sector_builder_ffi_FFISectorClass {
+                sector_size: TEST_SECTOR_SIZE,
+                porep_proof_partitions: 2,
+            },
+            max_bytes: 1016,
+            first_piece_bytes: 400,
+            second_piece_bytes: 200,
+            third_piece_bytes: 500,
+            fourth_piece_bytes: 200,
+            max_num_staged_sectors: 2,
+            estimated_secs_to_seal_sector: 60 * 5,
+        }
+    };
+
+    unsafe { sector_builder_lifecycle(cfg).unwrap() };
+}
 
 unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure::Error> {
     let metadata_dir_a = tempfile::tempdir().unwrap();
@@ -280,51 +312,15 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
 
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
-        let challenge_seed = [1u8; 32];
-
-        let pset = ProvingSet::new(get_sector_info(&mut ctx, b_ptr));
-
-        let proof = generate_post(b_ptr, challenge_seed, &pset);
+        let cseed = [1u8; 32];
+        let p_set = ProvingSet::new(get_sector_info(&mut ctx, b_ptr));
+        let proof = generate_post(b_ptr, cseed, &p_set);
 
         assert!(
-            verify_post(cfg.sector_class.sector_size, challenge_seed, &pset, &proof),
+            verify_post(cfg.sector_class.sector_size, cseed, &p_set, &proof),
             "PoSt was invalid"
         );
     }
 
     Ok(())
-}
-
-fn main() {
-    let cfg = if env::var("TEST_LIVE_SEAL").is_ok() {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: LIVE_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016 * 1024 * 256,
-            first_piece_bytes: 400 * 1024 * 256,
-            second_piece_bytes: 200 * 1024 * 256,
-            third_piece_bytes: 500 * 1024 * 256,
-            fourth_piece_bytes: 200 * 1024 * 256,
-            max_num_staged_sectors: 2,
-            estimated_secs_to_seal_sector: 60 * 120,
-        }
-    } else {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: TEST_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016,
-            first_piece_bytes: 400,
-            second_piece_bytes: 200,
-            third_piece_bytes: 500,
-            fourth_piece_bytes: 200,
-            max_num_staged_sectors: 2,
-            estimated_secs_to_seal_sector: 60 * 5,
-        }
-    };
-
-    unsafe { sector_builder_lifecycle(cfg).unwrap() };
 }

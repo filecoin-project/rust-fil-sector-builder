@@ -1,20 +1,46 @@
 version: 2.1
 
 jobs:
+  obtain_parameters:
+    docker:
+      - image: filecoin/rust:latest
+    working_directory: /mnt/crate
+    resource_class: xlarge
+    steps:
+      - configure_env
+      - install_rust
+      - run:
+          name: Install paramfetch from head of rust-fil-proofs master branch
+          command: |
+            # install paramfetch
+            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
+            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
+      - run:
+          name: create paramfetch checksum
+          command: md5sum $(which paramfetch) | cut -d ' ' -f 1 >> paramfetch-checksum.txt
+      - restore_parameter_cache
+      - run:
+          name: Generate Groth parameters and verifying keys
+          command: paramcache
+      - persist_to_workspace:
+          root: "."
+          paths:
+            - paramfetch-checksum.txt
+      - save_parameter_cache
+
   cargo_fetch:
     docker:
       - image: filecoin/rust:latest
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
+      - install_rust
       - checkout
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: rustup component add rustfmt-preview
@@ -23,38 +49,23 @@ jobs:
       - run: cargo fetch
       - run: rustc +stable --version
       - run: rustc +$(cat rust-toolchain) --version
-      - run:
-          name: Ensure cache is hydrated with PoRep and PoSt Groth parameters (for test)
-          command: |
-            # install paramfetch
-            cargo install filecoin-proofs --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
-            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
-
-            # compute and cache Groth parameters for 1KiB sectors
-            paramcache --test-only
       - persist_to_workspace:
           root: "."
           paths:
             - Cargo.lock
-      - save_cache:
-          key: cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
-          paths:
-            - /root/.cargo
-            - /root/.rustup
-            - /root/.filecoin-parameter-cache
+      - save_rust_cache
+
   test:
     docker:
       - image: filecoin/rust:latest
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (stable)
           command: cargo +stable test --verbose --all
@@ -76,13 +87,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (stable) in release profile
           command: |
@@ -94,20 +103,20 @@ jobs:
       - image: filecoin/rust:latest
     working_directory: /mnt/crate
     resource_class: xlarge
+    parameters:
+      sector_size:
+        type: integer
+        default: 1024
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
-      - run:
-          name: Build the static lib for linking into the example
-          command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --package sector-builder-ffi
+      - restore_parameter_cache
+      - restore_rust_cache
       - run:
           name: run regression tests (examples) against libsector_builder_ffi.a
-          command: RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu
+          command: RUSTFLAGS="-L ./target/release -Z sanitizer=leak" cargo run --release --package sector-builder-ffi --example simple --target x86_64-unknown-linux-gnu -- << parameters.sector_size >>
 
   test_ignored_release:
     docker:
@@ -115,13 +124,12 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_parameter_cache
+      - restore_rust_cache
       - run:
           name: Test (stable) in release profile
           command: cargo +stable test --verbose --release --all -- --ignored
@@ -132,13 +140,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Test (nightly)
           command: cargo +$(cat rust-toolchain) test --verbose --all
@@ -150,13 +156,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Benchmarks (nightly)
           command: cargo +$(cat rust-toolchain) build --benches --verbose --all
@@ -168,13 +172,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Run cargo fmt
           command: cargo fmt --all -- --check
@@ -185,13 +187,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Run cargo clippy
           command: cargo clippy --all
@@ -202,13 +202,11 @@ jobs:
     working_directory: /mnt/crate
     resource_class: xlarge
     steps:
-      - linux_configure_env
+      - configure_env
       - checkout
       - attach_workspace:
           at: "."
-      - restore_cache:
-          keys:
-            - cargo-v4-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+      - restore_rust_cache
       - run:
           name: Install jq
           command: apt-get install jq -yqq
@@ -224,18 +222,14 @@ jobs:
       xcode: "10.0.0"
     working_directory: ~/crate
     resource_class: large
+    parameters:
+      create_github_release:
+        type: boolean
+        default: false
     steps:
-      - run:
-          name: Configure environment variables
-          command: |
-            echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export PATH="${HOME}/.cargo/bin:${HOME}/.bin:${PATH}"' >> $BASH_ENV
-            echo 'export CIRCLE_ARTIFACTS="/tmp"' >> $BASH_ENV
+      - configure_env
+      - install_rust
       - checkout
-      - run:
-          name: Install Rust
-          command: |
-            curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: cargo update
@@ -251,12 +245,13 @@ jobs:
           command: ./scripts/build-release.sh $(cat ./rust-toolchain) --verbose --all
       - run:
           name: Publish release to GitHub
-          command: bash ./scripts/publish-release.sh
+          command: true; <<# parameters.create_github_release >> bash ./scripts/publish-release.sh <</ parameters.create_github_release >>
 
 workflows:
   version: 2
   test_all:
     jobs:
+      - obtain_parameters
       - cargo_fetch
       - rustfmt:
           requires:
@@ -268,11 +263,24 @@ workflows:
           requires:
             - cargo_fetch
       - ffi_regression:
+          name: e2e_1KiB
+          sector_size: 1024
           requires:
             - cargo_fetch
+            - obtain_parameters
+      - ffi_regression:
+          name: e2e_256MiB
+          sector_size: 268435456
+          requires:
+            - cargo_fetch
+            - obtain_parameters
+          filters:
+            branches:
+              only: master
       - test_ignored_release:
           requires:
             - cargo_fetch
+            - obtain_parameters
       - test:
           requires:
             - cargo_fetch
@@ -289,6 +297,14 @@ workflows:
             branches:
               only: master
       - build_darwin_release:
+          create_github_release: false
+          requires:
+            - cargo_fetch
+          filters:
+            branches:
+              ignore: master
+      - build_darwin_release:
+          create_github_release: true
           requires:
             - cargo_fetch
           filters:
@@ -296,12 +312,45 @@ workflows:
               only: master
 
 commands:
-  linux_configure_env:
+  configure_env:
     steps:
       - run:
           name: Configure environment variables
           command: |
             echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export FILECOIN_PARAMETER_CACHE="/root/.filecoin-parameter-cache"' >> $BASH_ENV
+            echo 'export FILECOIN_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
             echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
+            echo 'export CARGO_HOME=/tmp/cargo' >> $BASH_ENV
+            echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
+            echo 'export CIRCLE_ARTIFACTS=/tmp/circle-ci-artifacts' >> $BASH_ENV
+            echo 'export PATH="${CARGO_HOME}/bin:${PATH}"' >> $BASH_ENV
             source $BASH_ENV
+  restore_parameter_cache:
+    steps:
+      - restore_cache:
+          key: cargo-v4c-{{ checksum "paramfetch-checksum.txt" }}
+          paths:
+            - /tmp/filecoin-parameter-cache
+  restore_rust_cache:
+    steps:
+      - restore_cache:
+          key: cargo-v4c-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+  save_parameter_cache:
+    steps:
+      - save_cache:
+          key: cargo-v4c-{{ checksum "paramfetch-checksum.txt" }}
+          paths:
+            - /tmp/filecoin-parameter-cache
+  save_rust_cache:
+    steps:
+      - save_cache:
+          key: cargo-v4c-{{ checksum "rust-toolchain" }}-{{ checksum "Cargo.toml" }}-{{ checksum "Cargo.lock" }}-{{ arch }}
+          paths:
+            - /tmp/cargo
+            - /tmp/rustup
+  install_rust:
+    steps:
+      - run:
+          name: Install Rust
+          command: |
+            curl https://sh.rustup.rs -sSf | sh -s -- -y

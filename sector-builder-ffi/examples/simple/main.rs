@@ -6,13 +6,14 @@
 
 #[macro_use(defer)]
 extern crate scopeguard;
+#[macro_use]
+extern crate log;
 
 use std::io::Write;
 use std::slice;
 use std::{env, fs};
 
 use ffi_toolkit::c_str_to_pbuf;
-use filecoin_proofs::constants::{LIVE_SECTOR_SIZE, TEST_SECTOR_SIZE};
 use tempfile::NamedTempFile;
 
 use deallocator::*;
@@ -27,47 +28,41 @@ mod plumbing;
 mod porcelain;
 mod provingset;
 
+#[derive(Debug)]
 struct TestConfiguration {
     first_piece_bytes: usize,
-    max_bytes: u64,
     second_piece_bytes: usize,
     sector_class: sector_builder_ffi_FFISectorClass,
     third_piece_bytes: usize,
     fourth_piece_bytes: usize,
     max_num_staged_sectors: u8,
-    estimated_secs_to_seal_sector: u64,
+    max_secs_to_seal_sector: u64,
 }
 
 fn main() {
-    let cfg = if env::var("TEST_LIVE_SEAL").is_ok() {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: LIVE_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016 * 1024 * 256,
-            first_piece_bytes: 400 * 1024 * 256,
-            second_piece_bytes: 200 * 1024 * 256,
-            third_piece_bytes: 500 * 1024 * 256,
-            fourth_piece_bytes: 200 * 1024 * 256,
-            max_num_staged_sectors: 2,
-            estimated_secs_to_seal_sector: 60 * 120,
-        }
-    } else {
-        TestConfiguration {
-            sector_class: sector_builder_ffi_FFISectorClass {
-                sector_size: TEST_SECTOR_SIZE,
-                porep_proof_partitions: 2,
-            },
-            max_bytes: 1016,
-            first_piece_bytes: 400,
-            second_piece_bytes: 200,
-            third_piece_bytes: 500,
-            fourth_piece_bytes: 200,
-            max_num_staged_sectors: 2,
-            estimated_secs_to_seal_sector: 60 * 5,
-        }
+    pretty_env_logger::try_init_timed().expect("could not initialize logger");
+
+    let sector_size = env::args()
+        .collect::<Vec<String>>()
+        .get(1)
+        .expect("first argument must be sector size, in bytes")
+        .parse::<u64>()
+        .expect("could not parse argument to a sector size");
+
+    let cfg = TestConfiguration {
+        sector_class: sector_builder_ffi_FFISectorClass {
+            sector_size,
+            porep_proof_partitions: 2,
+        },
+        first_piece_bytes: ((400.0 / 1024.0) * (sector_size as f64)) as usize,
+        second_piece_bytes: ((200.0 / 1024.0) * (sector_size as f64)) as usize,
+        third_piece_bytes: ((500.0 / 1024.0) * (sector_size as f64)) as usize,
+        fourth_piece_bytes: ((200.0 / 1024.0) * (sector_size as f64)) as usize,
+        max_num_staged_sectors: 2,
+        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
     };
+
+    info!("running FFI tests using cfg={:?}", cfg);
 
     unsafe { sector_builder_lifecycle(cfg).unwrap() };
 }
@@ -95,16 +90,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         cfg.max_num_staged_sectors,
     );
 
-    let max_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
-
-    // TODO: Replace the hard-coded byte amounts with values computed
-    // from whatever was retrieved from the SectorBuilder.
-    if max_bytes != cfg.max_bytes {
-        panic!(
-            "test assumes the wrong number of bytes (expected: {}, actual: {})",
-            cfg.max_bytes, max_bytes
-        );
-    }
+    let max_user_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
 
     // verify that we have neither sealed nor staged sectors yet
     {
@@ -169,7 +155,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
     // add fifth piece, which completely fills a staged sector (and triggers
     // sealing)
     {
-        let MakePiece { file, bytes, key } = make_piece(cfg.max_bytes as usize);
+        let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
         assert_eq!(
             126,
             add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
@@ -182,14 +168,14 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         a_ptr,
         124,
         sector_builder_ffi_FFISealStatus_Sealed,
-        cfg.estimated_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector * 2,
     );
 
     poll_for_sector_sealing_status(
         a_ptr,
         126,
         sector_builder_ffi_FFISealStatus_Sealed,
-        cfg.estimated_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector * 2,
     );
 
     // drop the first sector builder, relinquishing any locks on persistence

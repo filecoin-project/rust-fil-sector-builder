@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeo pipefail
+set -Ee
 
 if [[ -z "$1" ]]
 then
@@ -26,6 +26,23 @@ linker_flags=$(cat ${build_output_tmp} \
     | grep native-static-libs\: \
     | head -n 1 \
     | cut -d ':' -f 3)
+
+# write linker flags to output dir if we found them in build output, or attempt
+# to read them from output dir if not
+#
+if [[ -z "$linker_flags" ]]; then
+    linker_flags=$(cat ./target/release/linker-flags)
+    (>&2 echo "falling back to cached linker flags")
+else
+    echo "${linker_flags}" > ./target/release/linker-flags
+fi
+
+# eject from build script if we don't have linker flags for our pkg-config file
+#
+if [[ -z "$linker_flags" ]]; then
+    (>&2 echo "linker flags found in neither build output nor output dir")
+    exit 1
+fi
 
 # generate pkg-config
 #

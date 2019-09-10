@@ -295,20 +295,20 @@ workflows:
           filters:
             branches:
               only: master
-      - build_darwin_release:
-          create_github_release: false
-          requires:
-            - cargo_fetch
-          filters:
-            branches:
-              ignore: master
+#      - build_darwin_release:
+#          create_github_release: false
+#          requires:
+#            - cargo_fetch
+#          filters:
+#            branches:
+#              ignore: master
       - build_darwin_release:
           create_github_release: true
           requires:
             - cargo_fetch
           filters:
             branches:
-              only: master
+              ignore: master
 
 commands:
   configure_env:

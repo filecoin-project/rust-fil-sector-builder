@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Ee
+set -Eex
 
 if [[ -z "$1" ]]
 then

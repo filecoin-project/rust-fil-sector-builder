@@ -297,12 +297,9 @@ workflows:
             branches:
               only: master
       - build_darwin_release:
-          create_github_release: false
+          create_github_release: true
           requires:
             - cargo_fetch
-          filters:
-            branches:
-              ignore: master
 
 commands:
   configure_env:

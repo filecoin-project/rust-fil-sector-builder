@@ -9,6 +9,14 @@ then
 fi
 
 build_output_tmp=$(mktemp)
+linker_flag_cache=./target/release/linker-flags
+
+# respect CARGO_TARGET_DIR, if set
+#
+if [[ ! -z "$CARGO_TARGET_DIR" ]]; then
+    (>&2 echo "CARGO_TARGET_DIR set to ${CARGO_TARGET_DIR}")
+    linker_flag_cache="${CARGO_TARGET_DIR}/release/linker-flags"
+fi
 
 # clean up temp file on exit
 #
@@ -31,10 +39,10 @@ linker_flags=$(cat ${build_output_tmp} \
 # to read them from output dir if not
 #
 if [[ -z "$linker_flags" ]]; then
-    linker_flags=$(cat ./target/release/linker-flags)
+    linker_flags=$(cat "${linker_flag_cache}")
     (>&2 echo "falling back to cached linker flags")
 else
-    echo "${linker_flags}" > ./target/release/linker-flags
+    echo "${linker_flags}" > "${linker_flag_cache}"
 fi
 
 # eject from build script if we don't have linker flags for our pkg-config file

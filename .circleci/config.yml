@@ -307,13 +307,14 @@ commands:
       - run:
           name: Configure environment variables
           command: |
-            echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export FILECOIN_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
-            echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
             echo 'export CARGO_HOME=/tmp/cargo' >> $BASH_ENV
-            echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
+            echo 'export CARGO_TARGET_DIR=/tmp/cargo-target' >> $BASH_ENV
             echo 'export CIRCLE_ARTIFACTS=/tmp/circle-ci-artifacts' >> $BASH_ENV
+            echo 'export FILECOIN_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
             echo 'export PATH="${CARGO_HOME}/bin:${PATH}"' >> $BASH_ENV
+            echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
+            echo 'export RUST_LOG=info' >> $BASH_ENV
+            echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
             source $BASH_ENV
   restore_parameter_cache:
     steps:
@@ -338,6 +339,7 @@ commands:
           paths:
             - /tmp/cargo
             - /tmp/rustup
+            - /tmp/cargo-target
   install_rust:
     steps:
       - run:

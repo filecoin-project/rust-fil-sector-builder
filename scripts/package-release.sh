@@ -2,6 +2,15 @@
 
 set -e
 
+target_dir="./target"
+
+# respect CARGO_TARGET_DIR, if set
+#
+if [[ ! -z "$CARGO_TARGET_DIR" ]]; then
+    (>&2 echo "CARGO_TARGET_DIR set to ${CARGO_TARGET_DIR}")
+    target_dir=$CARGO_TARGET_DIR
+fi
+
 if [ -z "$1" ]; then
   TAR_FILE=`mktemp`.tar.gz
 else
@@ -15,9 +24,9 @@ mkdir -p $TAR_PATH/bin
 mkdir -p $TAR_PATH/include
 mkdir -p $TAR_PATH/lib/pkgconfig
 
-find . -type f -name sector_builder_ffi.h -exec cp -- "{}" $TAR_PATH/include/ \;
-find . -type f -name libsector_builder_ffi.a -exec cp -- "{}" $TAR_PATH/lib/ \;
-find . -type f -name sector_builder_ffi.pc -exec cp -- "{}" $TAR_PATH/lib/pkgconfig/ \;
+find "${target_dir}" -type f -name sector_builder_ffi.h -exec cp -- "{}" $TAR_PATH/include/ \;
+find "${target_dir}" -type f -name libsector_builder_ffi.a -exec cp -- "{}" $TAR_PATH/lib/ \;
+find "${target_dir}" -type f -name sector_builder_ffi.pc -exec cp -- "{}" $TAR_PATH/lib/pkgconfig/ \;
 
 cargo install filecoin-proofs \
   --bin paramcache \

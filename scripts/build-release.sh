@@ -9,13 +9,13 @@ then
 fi
 
 build_output_tmp=$(mktemp)
-linker_flag_cache=./target/release/linker-flags
+target_dir="./target"
 
 # respect CARGO_TARGET_DIR, if set
 #
 if [[ ! -z "$CARGO_TARGET_DIR" ]]; then
     (>&2 echo "CARGO_TARGET_DIR set to ${CARGO_TARGET_DIR}")
-    linker_flag_cache="${CARGO_TARGET_DIR}/release/linker-flags"
+    target_dir=$CARGO_TARGET_DIR
 fi
 
 # clean up temp file on exit
@@ -39,10 +39,10 @@ linker_flags=$(cat ${build_output_tmp} \
 # to read them from output dir if not
 #
 if [[ -z "$linker_flags" ]]; then
-    linker_flags=$(cat "${linker_flag_cache}")
+    linker_flags=$(cat "${target_dir}/release/linker-flags")
     (>&2 echo "falling back to cached linker flags")
 else
-    echo "${linker_flags}" > "${linker_flag_cache}"
+    echo "${linker_flags}" > "${target_dir}/release/linker-flags"
 fi
 
 # eject from build script if we don't have linker flags for our pkg-config file
@@ -59,8 +59,8 @@ sed -e "s;@VERSION@;$(git rev-parse HEAD);" \
 
 # ensure header file was built
 #
-find . -type f -name sector_builder_ffi.h | read
+find "${target_dir}" -type f -name sector_builder_ffi.h | read
 
 # ensure the archive file was built
 #
-find . -type f -name libsector_builder_ffi.a | read
+find "${target_dir}" -type f -name libsector_builder_ffi.a | read

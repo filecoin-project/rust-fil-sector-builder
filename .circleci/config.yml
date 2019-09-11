@@ -230,6 +230,7 @@ jobs:
       - configure_env
       - install_rust
       - checkout
+      - restore_rust_cache
       - run: rustup install $(cat rust-toolchain)
       - run: rustup default $(cat rust-toolchain)
       - run: cargo update

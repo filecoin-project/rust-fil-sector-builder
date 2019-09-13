@@ -8,6 +8,7 @@ use libc;
 use once_cell::sync::OnceCell;
 use storage_proofs::sector::SectorId;
 
+use sector_builder::traits::SectorBuilder as SectorBuilderTrait;
 use sector_builder::{
     GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder,
 };

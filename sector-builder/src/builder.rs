@@ -13,6 +13,7 @@ use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
 use crate::scheduler::{PerformHealthCheck, Request, Scheduler};
 use crate::sealer::*;
+use crate::traits::SectorBuilder as SectorBuilderTrait;
 
 pub struct SectorBuilder {
     // Prevents FFI consumers from queueing behind long-running seal operations.
@@ -29,6 +30,62 @@ pub struct SectorBuilder {
 
     // Configures size of proofs and sectors managed by the SectorBuilder.
     sector_class: SectorClass,
+}
+
+impl SectorBuilderTrait for SectorBuilder {
+    fn add_piece(
+        &self,
+        piece_key: String,
+        piece_bytes_amount: u64,
+        piece_path: String,
+        store_until: SecondsSinceEpoch,
+    ) -> Result<SectorId> {
+        log_unrecov(self.run_blocking(|tx| {
+            Request::AddPiece(piece_key, piece_bytes_amount, piece_path, store_until, tx)
+        }))
+    }
+
+    fn get_seal_status(
+        &self,
+        sector_id: SectorId,
+    ) -> std::result::Result<SealStatus, failure::Error> {
+        log_unrecov(self.run_blocking(|tx| Request::GetSealStatus(sector_id, tx)))
+    }
+
+    fn read_piece_from_sealed_sector(
+        &self,
+        piece_key: String,
+    ) -> std::result::Result<Vec<u8>, failure::Error> {
+        log_unrecov(self.run_blocking(|tx| Request::RetrievePiece(piece_key, tx)))
+    }
+
+    fn seal_all_staged_sectors(&self) -> std::result::Result<(), failure::Error> {
+        log_unrecov(self.run_blocking(Request::SealAllStagedSectors))
+    }
+
+    fn get_sealed_sectors(
+        &self,
+        check_health: bool,
+    ) -> std::result::Result<Vec<GetSealedSectorResult>, failure::Error> {
+        log_unrecov(
+            self.run_blocking(|tx| Request::GetSealedSectors(PerformHealthCheck(check_health), tx)),
+        )
+    }
+
+    fn get_staged_sectors(&self) -> std::result::Result<Vec<StagedSectorMetadata>, failure::Error> {
+        log_unrecov(self.run_blocking(Request::GetStagedSectors))
+    }
+
+    fn generate_post(
+        &self,
+        comm_rs: &[[u8; 32]],
+        challenge_seed: &[u8; 32],
+        faults: Vec<SectorId>,
+    ) -> std::result::Result<Vec<u8>, failure::Error> {
+        log_unrecov(self.run_blocking(|tx| {
+            Request::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, faults, tx)
+        }))
+    }
 }
 
 impl SectorBuilder {
@@ -98,62 +155,6 @@ impl SectorBuilder {
         })
     }
 
-    // Stages user piece-bytes for sealing. Note that add_piece calls are
-    // processed sequentially to make bin packing easier.
-    pub fn add_piece(
-        &self,
-        piece_key: String,
-        piece_bytes_amount: u64,
-        piece_path: String,
-        store_until: SecondsSinceEpoch,
-    ) -> Result<SectorId> {
-        log_unrecov(self.run_blocking(|tx| {
-            Request::AddPiece(piece_key, piece_bytes_amount, piece_path, store_until, tx)
-        }))
-    }
-
-    // Returns sealing status for the sector with specified id. If no sealed or
-    // staged sector exists with the provided id, produce an error.
-    pub fn get_seal_status(&self, sector_id: SectorId) -> Result<SealStatus> {
-        log_unrecov(self.run_blocking(|tx| Request::GetSealStatus(sector_id, tx)))
-    }
-
-    // Unseals the sector containing the referenced piece and returns its
-    // bytes. Produces an error if this sector builder does not have a sealed
-    // sector containing the referenced piece.
-    pub fn read_piece_from_sealed_sector(&self, piece_key: String) -> Result<Vec<u8>> {
-        log_unrecov(self.run_blocking(|tx| Request::RetrievePiece(piece_key, tx)))
-    }
-
-    // For demo purposes. Schedules sealing of all staged sectors.
-    pub fn seal_all_staged_sectors(&self) -> Result<()> {
-        log_unrecov(self.run_blocking(Request::SealAllStagedSectors))
-    }
-
-    // Returns all sealed sector metadata.
-    pub fn get_sealed_sectors(&self, check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
-        log_unrecov(
-            self.run_blocking(|tx| Request::GetSealedSectors(PerformHealthCheck(check_health), tx)),
-        )
-    }
-
-    // Returns all staged sector metadata.
-    pub fn get_staged_sectors(&self) -> Result<Vec<StagedSectorMetadata>> {
-        log_unrecov(self.run_blocking(Request::GetStagedSectors))
-    }
-
-    // Generates a proof-of-spacetime. Blocks the calling thread.
-    pub fn generate_post(
-        &self,
-        comm_rs: &[[u8; 32]],
-        challenge_seed: &[u8; 32],
-        faults: Vec<SectorId>,
-    ) -> Result<Vec<u8>> {
-        log_unrecov(self.run_blocking(|tx| {
-            Request::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, faults, tx)
-        }))
-    }
-
     // Run a task, blocking on the return channel.
     fn run_blocking<T, F: FnOnce(mpsc::SyncSender<T>) -> Request>(&self, with_sender: F) -> T {
         let (tx, rx) = mpsc::sync_channel(0);
@@ -209,6 +210,7 @@ impl Drop for SectorBuilder {
 pub struct WrappedKeyValueStore<T: KeyValueStore> {
     inner: Box<T>,
 }
+
 impl<T: KeyValueStore> WrappedKeyValueStore<T> {
     pub fn new(inner: T) -> Self {
         Self {

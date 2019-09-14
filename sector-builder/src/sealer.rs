@@ -4,10 +4,13 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::helpers::{retrieve_piece, seal};
-use crate::metadata::{SealedSectorMetadata, StagedSectorMetadata};
+use crate::helpers::seal;
+use crate::metadata::StagedSectorMetadata;
 use crate::scheduler::Request;
 use crate::store::SectorStore;
+use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
+use std::path::PathBuf;
+use storage_proofs::sector::SectorId;
 
 const FATAL_NOLOCK: &str = "error acquiring task lock";
 const FATAL_RCVTSK: &str = "error receiving seal task";
@@ -21,11 +24,16 @@ pub struct SealerWorker {
 
 pub enum SealerInput {
     Seal(StagedSectorMetadata, mpsc::SyncSender<Request>),
-    Unseal(
-        String,
-        Box<SealedSectorMetadata>,
-        mpsc::SyncSender<Result<Vec<u8>>>,
-    ),
+    Unseal {
+        porep_config: PoRepConfig,
+        source_path: PathBuf,
+        destination_path: PathBuf,
+        sector_id: SectorId,
+        piece_start_byte: UnpaddedByteIndex,
+        piece_len: UnpaddedBytesAmount,
+        caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
+        done_tx: mpsc::SyncSender<Request>,
+    },
     Shutdown,
 }
 
@@ -54,15 +62,30 @@ impl SealerWorker {
 
                     return_channel.send(task).expects(FATAL_SNDTSK);
                 }
-                SealerInput::Unseal(piece_key, sealed_sector, return_channel) => {
-                    let result = retrieve_piece(
-                        &sector_store.clone(),
-                        &sealed_sector,
+                SealerInput::Unseal {
+                    porep_config,
+                    source_path,
+                    destination_path,
+                    sector_id,
+                    piece_start_byte,
+                    piece_len,
+                    caller_done_tx,
+                    done_tx,
+                } => {
+                    let result = filecoin_proofs::get_unsealed_range(
+                        porep_config,
+                        &source_path,
+                        &destination_path,
                         &prover_id,
-                        &piece_key,
-                    );
+                        sector_id,
+                        piece_start_byte,
+                        piece_len,
+                    )
+                    .map(|num_bytes_unsealed| (num_bytes_unsealed, destination_path));
 
-                    return_channel.send(result).expects(FATAL_SNDRLT);
+                    done_tx
+                        .send(Request::HandleRetrievePieceResult(result, caller_done_tx))
+                        .expects(FATAL_SNDRLT);
                 }
                 SealerInput::Shutdown => break,
             }

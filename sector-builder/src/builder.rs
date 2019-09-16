@@ -116,12 +116,12 @@ impl SectorBuilder {
     pub fn add_piece(
         &self,
         piece_key: String,
+        piece_file: fs::File,
         piece_bytes_amount: u64,
-        piece_path: String,
         store_until: SecondsSinceEpoch,
     ) -> Result<SectorId> {
         log_unrecov(self.run_blocking(|tx| {
-            SchedulerTask::AddPiece(piece_key, piece_bytes_amount, piece_path, store_until, tx)
+            SchedulerTask::AddPiece(piece_key, piece_bytes_amount, piece_file, store_until, tx)
         }))
     }
 

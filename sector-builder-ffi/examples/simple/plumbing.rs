@@ -98,25 +98,26 @@ pub(crate) unsafe fn get_staged_sectors(
     slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
 }
 
-pub(crate) unsafe fn add_piece<T: AsRef<Path>>(
+#[cfg(not(target_os = "windows"))]
+pub(crate) unsafe fn add_piece(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     piece_key: &str,
-    piece_path: T,
+    piece_file: &std::fs::File,
     piece_len: usize,
     store_until_utc_secs: u64,
 ) -> u64 {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
-    let c_piece_path = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
-    defer!(free_c_str(c_piece_path));
+    use std::os::unix::io::AsRawFd;
+    let c_piece_fd = piece_file.as_raw_fd() as libc::c_int;
 
     let resp = sector_builder_ffi_add_piece(
         ptr,
         c_piece_key,
+        c_piece_fd,
         piece_len as u64,
-        c_piece_path,
         store_until_utc_secs,
     );
     defer!(ctx.destructors.push(Box::new(move || {
@@ -167,15 +168,16 @@ pub(crate) unsafe fn read_piece_from_sealed_sector(
     slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec()
 }
 
-pub(crate) unsafe fn generate_piece_commitment<T: AsRef<Path>>(
+#[cfg(not(target_os = "windows"))]
+pub(crate) unsafe fn generate_piece_commitment(
     ctx: &mut Deallocator,
-    piece_path: T,
+    piece_file: &mut std::fs::File,
     piece_len: usize,
 ) -> [u8; 32] {
-    let piece_path_as_c_str = rust_str_to_c_str(piece_path.as_ref().to_str().unwrap());
-    defer!(free_c_str(piece_path_as_c_str));
+    use std::os::unix::io::AsRawFd;
+    let c_piece_fd = piece_file.as_raw_fd() as *mut libc::c_void;
 
-    let resp = sector_builder_ffi_generate_piece_commitment(piece_path_as_c_str, piece_len as u64);
+    let resp = sector_builder_ffi_generate_piece_commitment(c_piece_fd, piece_len as u64);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
     })));

@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
@@ -29,7 +30,7 @@ pub enum SchedulerTask {
     AddPiece(
         String,
         u64,
-        String,
+        File,
         SecondsSinceEpoch,
         mpsc::SyncSender<Result<SectorId>>,
     ),
@@ -69,8 +70,8 @@ impl Scheduler {
 
                 // Dispatch to the appropriate task-handler.
                 match task {
-                    SchedulerTask::AddPiece(key, amt, path, store_until, tx) => {
-                        match m.add_piece(key, amt, path, store_until) {
+                    SchedulerTask::AddPiece(key, amt, file, store_until, tx) => {
+                        match m.add_piece(key, amt, file, store_until) {
                             Ok((sector_id, protos)) => {
                                 for p in protos {
                                     worker_tx

@@ -1,5 +1,6 @@
 use std::collections::btree_map::BTreeMap;
 use std::collections::HashSet;
+use std::fs::File;
 use std::path::PathBuf;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -138,15 +139,15 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         &mut self,
         piece_key: String,
         piece_bytes_amount: u64,
-        piece_path: String,
+        piece_file: File,
         store_until: SecondsSinceEpoch,
     ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
         let destination_sector_id = helpers::add_piece(
             &self.sector_store,
             &mut self.state.staged,
-            piece_key,
             piece_bytes_amount,
-            piece_path,
+            piece_key,
+            piece_file,
             store_until,
         )?;
 

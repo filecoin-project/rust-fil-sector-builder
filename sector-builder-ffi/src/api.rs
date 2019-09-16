@@ -23,28 +23,41 @@ pub struct FFISectorClass {
     porep_proof_partitions: u8,
 }
 
+#[cfg(not(target_os = "windows"))]
+unsafe fn raw_to_file(raw: *mut libc::c_void) -> std::fs::File {
+    use std::os::unix::io::{FromRawFd, RawFd};
+
+    std::fs::File::from_raw_fd(raw as RawFd)
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn raw_to_file(raw: *mut libc::c_void) -> std::fs::File {
+    use std::os::window::io::{FromRawHandle, RawHandle};
+
+    std::fs::File::from_raw_handle(raw as RawHandle)
+}
+
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
-///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
+    piece_fd: *mut libc::c_void,
     piece_bytes_amount: u64,
-    piece_path: *const libc::c_char,
     store_until_utc_secs: u64,
 ) -> *mut responses::AddPieceResponse {
     init_log();
 
     let piece_key = c_str_to_rust_str(piece_key);
-    let piece_path = c_str_to_rust_str(piece_path);
+    let piece_file = raw_to_file(piece_fd);
 
     let mut response: responses::AddPieceResponse = Default::default();
 
     match (*ptr).add_piece(
         String::from(piece_key),
+        piece_file,
         piece_bytes_amount,
-        String::from(piece_path),
         SecondsSinceEpoch(store_until_utc_secs),
     ) {
         Ok(sector_id) => {
@@ -97,12 +110,12 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
 /// Returns the merkle root for a piece after piece padding and alignment.
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
-    piece_path: *const libc::c_char,
+    piece_fd: *mut libc::c_void,
     unpadded_piece_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
     init_log();
 
-    filecoin_proofs_ffi::api::generate_piece_commitment(piece_path, unpadded_piece_size)
+    filecoin_proofs_ffi::api::generate_piece_commitment(piece_fd, unpadded_piece_size)
 }
 
 /// Returns sector sealing status for the provided sector id if it exists. If

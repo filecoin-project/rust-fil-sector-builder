@@ -230,51 +230,45 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                     .any(|piece| piece.piece_key == piece_key)
             });
 
-            if let Some(sealed_sector) = opt_sealed_sector {
-                let piece = sealed_sector
-                    .pieces
-                    .iter()
-                    .find(|p| p.piece_key == piece_key)
-                    .ok_or_else(|| {
-                        let msg = format!(
-                            "piece {} not found in sector {}",
-                            piece_key, &sealed_sector.sector_id
-                        );
-                        err_unrecov(msg)
-                    })?;
+            opt_sealed_sector
+                .ok_or_else(|| err_piecenotfound(piece_key.to_string()).into())
+                .and_then(|sealed_sector| {
+                    let piece = sealed_sector
+                        .pieces
+                        .iter()
+                        .find(|p| p.piece_key == piece_key)
+                        .ok_or_else(|| err_piecenotfound(piece_key.clone()))?;
 
-                let piece_lengths: Vec<_> = sealed_sector
-                    .pieces
-                    .iter()
-                    .take_while(|p| p.piece_key != piece_key)
-                    .map(|p| p.num_bytes)
-                    .collect();
+                    let piece_lengths: Vec<_> = sealed_sector
+                        .pieces
+                        .iter()
+                        .take_while(|p| p.piece_key != piece_key)
+                        .map(|p| p.num_bytes)
+                        .collect();
 
-                let staged_sector_access = self
-                    .sector_store
-                    .manager()
-                    .new_staging_sector_access(sealed_sector.sector_id)
-                    .map_err(failure::Error::from)?;
-
-                Ok(SealerInput::Unseal {
-                    porep_config: self.sector_store.proofs_config().porep_config(),
-                    source_path: self
+                    let staged_sector_access = self
                         .sector_store
                         .manager()
-                        .sealed_sector_path(&sealed_sector.sector_access),
-                    destination_path: self
-                        .sector_store
-                        .manager()
-                        .staged_sector_path(&staged_sector_access),
-                    sector_id: sealed_sector.sector_id,
-                    piece_start_byte: get_piece_start_byte(&piece_lengths, piece.num_bytes),
-                    piece_len: piece.num_bytes,
-                    caller_done_tx: done_tx_c,
-                    done_tx: self.scheduler_input_tx.clone(),
+                        .new_staging_sector_access(sealed_sector.sector_id)
+                        .map_err(failure::Error::from)?;
+
+                    Ok(SealerInput::Unseal {
+                        porep_config: self.sector_store.proofs_config().porep_config(),
+                        source_path: self
+                            .sector_store
+                            .manager()
+                            .sealed_sector_path(&sealed_sector.sector_access),
+                        destination_path: self
+                            .sector_store
+                            .manager()
+                            .staged_sector_path(&staged_sector_access),
+                        sector_id: sealed_sector.sector_id,
+                        piece_start_byte: get_piece_start_byte(&piece_lengths, piece.num_bytes),
+                        piece_len: piece.num_bytes,
+                        caller_done_tx: done_tx_c,
+                        done_tx: self.scheduler_input_tx.clone(),
+                    })
                 })
-            } else {
-                Err(err_piecenotfound(piece_key.to_string()).into())
-            }
         });
 
         match task {

@@ -4,7 +4,6 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::helpers::seal;
 use crate::metadata::StagedSectorMetadata;
 use crate::scheduler::Request;
 use crate::store::SectorStore;
@@ -57,7 +56,8 @@ impl SealerWorker {
             match task {
                 SealerInput::Seal(staged_sector, return_channel) => {
                     let sector_id = staged_sector.sector_id;
-                    let result = seal(&sector_store.clone(), &prover_id, staged_sector);
+                    let result =
+                        crate::helpers::seal(&sector_store.clone(), &prover_id, staged_sector);
                     let task = Request::HandleSealResult(sector_id, Box::new(result));
 
                     return_channel.send(task).expects(FATAL_SNDTSK);

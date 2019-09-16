@@ -116,7 +116,7 @@ pub(crate) unsafe fn add_piece(
     let resp = sector_builder_ffi_add_piece(
         ptr,
         c_piece_key,
-        c_piece_fd,
+        c_piece_fd as *mut libc::c_void,
         piece_len as u64,
         store_until_utc_secs,
     );

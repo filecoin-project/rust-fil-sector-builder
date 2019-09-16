@@ -376,7 +376,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     ) {
         let result = result.and_then(|(n, pbuf)| {
             let buffer = self.sector_store.manager().read_raw(
-                pbuf.to_str().ok_or(format_err!("conversion failed"))?,
+                pbuf.to_str()
+                    .ok_or_else(|| format_err!("conversion failed"))?,
                 0,
                 n,
             )?;

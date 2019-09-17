@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
-use filecoin_proofs::{generate_post, PrivateReplicaInfo};
+use filecoin_proofs::{generate_post, PrivateReplicaInfo, SealOutput};
 use storage_proofs::sector::SectorId;
 
 use crate::builder::WrappedKeyValueStore;
@@ -19,7 +19,9 @@ use crate::sealer::SealerInput;
 use crate::state::{SectorBuilderState, StagedState};
 use crate::store::SectorStore;
 use crate::GetSealedSectorResult::WithHealth;
-use crate::{GetSealedSectorResult, PaddedBytesAmount, SecondsSinceEpoch, UnpaddedBytesAmount};
+use crate::{
+    GetSealedSectorResult, PaddedBytesAmount, PieceMetadata, SecondsSinceEpoch, UnpaddedBytesAmount,
+};
 use filecoin_proofs::pieces::get_piece_start_byte;
 
 const FATAL_NOLOAD: &str = "could not load snapshot";
@@ -60,7 +62,7 @@ pub enum Request {
     ),
     RetrievePiece(String, mpsc::SyncSender<Result<Vec<u8>>>),
     SealAllStagedSectors(mpsc::SyncSender<Result<()>>),
-    HandleSealResult(SectorId, Box<Result<SealedSectorMetadata>>),
+    HandleSealResult(SectorId, String, PathBuf, Result<SealOutput>),
     HandleRetrievePieceResult(
         Result<(UnpaddedBytesAmount, PathBuf)>,
         mpsc::SyncSender<Result<Vec<u8>>>,
@@ -137,8 +139,8 @@ impl Scheduler {
                     Request::SealAllStagedSectors(tx) => {
                         tx.send(m.seal_all_staged_sectors()).expects(FATAL_NOSEND);
                     }
-                    Request::HandleSealResult(sector_id, result) => {
-                        m.handle_seal_result(sector_id, *result);
+                    Request::HandleSealResult(sector_id, access, path, result) => {
+                        m.handle_seal_result(sector_id, access, path, result);
                     }
                     Request::HandleRetrievePieceResult(result, tx) => {
                         m.handle_retrieve_piece_result(result, tx);
@@ -386,7 +388,9 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     pub fn handle_seal_result(
         &mut self,
         sector_id: SectorId,
-        result: Result<SealedSectorMetadata>,
+        sector_access: String,
+        sector_path: PathBuf,
+        result: Result<SealOutput>,
     ) {
         // scope exists to end the mutable borrow of self so that we can
         // checkpoint
@@ -394,17 +398,67 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             let staged_state = &mut self.state.staged;
             let sealed_state = &mut self.state.sealed;
 
-            match result {
-                Err(err) => {
-                    if let Some(staged_sector) = staged_state.sectors.get_mut(&sector_id) {
-                        staged_sector.seal_status =
-                            SealStatus::Failed(format!("{}", err_unrecov(err)));
+            let staged_sector = staged_state
+                .sectors
+                .get_mut(&sector_id)
+                .expect("missing staged sector");
+
+            let _ = result
+                .and_then(|output| {
+                    let SealOutput {
+                        comm_r,
+                        comm_r_star,
+                        comm_d,
+                        proof,
+                        comm_ps,
+                        piece_inclusion_proofs,
+                    } = output;
+
+                    // generate checksum
+                    let blake2b_checksum = crate::helpers::calculate_checksum(&sector_path)?
+                        .as_ref()
+                        .to_vec();
+
+                    // get number of bytes in sealed sector-file
+                    let len = std::fs::metadata(&sector_path)?.len();
+
+                    // combine the piece commitment, piece inclusion proof, and other piece
+                    // metadata into a single struct (to be persisted to metadata store)
+                    let pieces = staged_sector
+                        .clone()
+                        .pieces
+                        .into_iter()
+                        .zip(comm_ps.iter())
+                        .zip(piece_inclusion_proofs.into_iter())
+                        .map(|((piece, &comm_p), piece_inclusion_proof)| PieceMetadata {
+                            piece_key: piece.piece_key,
+                            num_bytes: piece.num_bytes,
+                            comm_p: Some(comm_p),
+                            piece_inclusion_proof: Some(piece_inclusion_proof.into()),
+                        })
+                        .collect();
+
+                    let meta = SealedSectorMetadata {
+                        sector_id: staged_sector.sector_id,
+                        sector_access: sector_access,
+                        pieces,
+                        comm_r_star,
+                        comm_r,
+                        comm_d,
+                        proof,
+                        blake2b_checksum,
+                        len,
                     };
-                }
-                Ok(sealed_sector) => {
-                    sealed_state.sectors.insert(sector_id, sealed_sector);
-                }
-            };
+
+                    Ok(meta)
+                })
+                .map_err(|err| {
+                    staged_sector.seal_status = SealStatus::Failed(format!("{}", err_unrecov(err)));
+                })
+                .map(|meta| {
+                    sealed_state.sectors.insert(sector_id, meta.clone());
+                    staged_sector.seal_status = SealStatus::Sealed(Box::new(meta));
+                });
         }
 
         self.checkpoint().expects(FATAL_SNPSHT);
@@ -425,18 +479,49 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         // Mark the to-be-sealed sectors as no longer accepting data and then
         // schedule sealing.
         for sector_id in to_be_sealed {
-            let mut sector = staged_state
+            let mut staged_sector = staged_state
                 .sectors
                 .get_mut(&sector_id)
                 .expects(FATAL_NOSECT);
-            sector.seal_status = SealStatus::Sealing;
+
+            // Provision a new sealed sector access through the manager.
+            let sealed_sector_access = self
+                .sector_store
+                .manager()
+                .new_sealed_sector_access(staged_sector.sector_id)
+                .map_err(failure::Error::from)?;
+
+            let sealed_sector_path = self
+                .sector_store
+                .manager()
+                .sealed_sector_path(&sealed_sector_access);
+
+            let staged_sector_path = self
+                .sector_store
+                .manager()
+                .staged_sector_path(&staged_sector.sector_access);
+
+            let piece_lens = staged_sector
+                .pieces
+                .iter()
+                .map(|p| p.num_bytes)
+                .collect::<Vec<UnpaddedBytesAmount>>();
+
+            // mutate staged sector state such that we don't try to write any
+            // more pieces to it
+            staged_sector.seal_status = SealStatus::Sealing;
 
             self.sealer_input_tx
                 .clone()
-                .send(SealerInput::Seal(
-                    sector.clone(),
-                    self.scheduler_input_tx.clone(),
-                ))
+                .send(SealerInput::Seal {
+                    piece_lens,
+                    porep_config: self.sector_store.proofs_config().porep_config(),
+                    sealed_sector_access,
+                    sealed_sector_path,
+                    sector_id,
+                    staged_sector_path,
+                    done_tx: self.scheduler_input_tx.clone(),
+                })
                 .expects(FATAL_SLRSND);
         }
 

@@ -4,16 +4,13 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::metadata::StagedSectorMetadata;
 use crate::scheduler::Request;
-use crate::store::SectorStore;
 use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
 const FATAL_NOLOCK: &str = "error acquiring task lock";
 const FATAL_RCVTSK: &str = "error receiving seal task";
-const FATAL_SNDTSK: &str = "error sending task";
 const FATAL_SNDRLT: &str = "error sending result";
 
 pub struct SealerWorker {
@@ -22,7 +19,15 @@ pub struct SealerWorker {
 }
 
 pub enum SealerInput {
-    Seal(StagedSectorMetadata, mpsc::SyncSender<Request>),
+    Seal {
+        piece_lens: Vec<UnpaddedBytesAmount>,
+        porep_config: PoRepConfig,
+        sealed_sector_access: String,
+        sealed_sector_path: PathBuf,
+        sector_id: SectorId,
+        staged_sector_path: PathBuf,
+        done_tx: mpsc::SyncSender<Request>,
+    },
     Unseal {
         porep_config: PoRepConfig,
         source_path: PathBuf,
@@ -37,10 +42,9 @@ pub enum SealerInput {
 }
 
 impl SealerWorker {
-    pub fn start<S: SectorStore + 'static>(
+    pub fn start(
         id: usize,
         seal_task_rx: Arc<Mutex<mpsc::Receiver<SealerInput>>>,
-        sector_store: Arc<S>,
         prover_id: [u8; 31],
     ) -> SealerWorker {
         let thread = thread::spawn(move || loop {
@@ -54,13 +58,32 @@ impl SealerWorker {
 
             // Dispatch to the appropriate task-handler.
             match task {
-                SealerInput::Seal(staged_sector, return_channel) => {
-                    let sector_id = staged_sector.sector_id;
-                    let result =
-                        crate::helpers::seal(&sector_store.clone(), &prover_id, staged_sector);
-                    let task = Request::HandleSealResult(sector_id, Box::new(result));
+                SealerInput::Seal {
+                    porep_config,
+                    sector_id,
+                    sealed_sector_access,
+                    sealed_sector_path,
+                    staged_sector_path,
+                    piece_lens,
+                    done_tx,
+                } => {
+                    let result = filecoin_proofs::seal(
+                        porep_config,
+                        &staged_sector_path,
+                        &sealed_sector_path,
+                        &prover_id,
+                        sector_id,
+                        &piece_lens,
+                    );
 
-                    return_channel.send(task).expects(FATAL_SNDTSK);
+                    done_tx
+                        .send(Request::HandleSealResult(
+                            sector_id,
+                            sealed_sector_access,
+                            sealed_sector_path,
+                            result,
+                        ))
+                        .expects(FATAL_SNDRLT);
                 }
                 SealerInput::Unseal {
                     porep_config,

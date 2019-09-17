@@ -68,7 +68,7 @@ impl SectorBuilder {
             let rx = Arc::new(Mutex::new(rx));
 
             let workers = (0..NUM_SEAL_WORKERS)
-                .map(|n| SealerWorker::start(n, rx.clone(), sector_store.clone(), prover_id))
+                .map(|n| SealerWorker::start(n, rx.clone(), prover_id))
                 .collect();
 
             (tx, workers)

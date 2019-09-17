@@ -3,16 +3,22 @@ use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
-use filecoin_proofs::types::{PaddedBytesAmount, PoRepConfig, PoStConfig, SectorClass};
+use filecoin_proofs::types::{PoRepConfig, PoStConfig, SectorClass};
+use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
+
+const FATAL_NOLOAD: &str = "could not load snapshot";
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
 use crate::error::{Result, SectorBuilderErr};
+use crate::helpers::SnapshotKey;
 use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
-use crate::scheduler::{PerformHealthCheck, Request, Scheduler};
+use crate::scheduler::{PerformHealthCheck, Request, Scheduler, SectorMetadataManager};
 use crate::sealer::*;
+use crate::state::{SectorBuilderState, StagedState};
+use crate::SectorStore;
 
 pub struct SectorBuilder {
     // Prevents FFI consumers from queueing behind long-running seal operations.
@@ -26,38 +32,22 @@ pub struct SectorBuilder {
 
     // The main worker. Owns all mutable state for the SectorBuilder.
     scheduler: Scheduler,
-
-    // Configures size of proofs and sectors managed by the SectorBuilder.
-    sector_class: SectorClass,
 }
 
 impl SectorBuilder {
     // Initialize and return a SectorBuilder from metadata persisted to disk if
     // it exists. Otherwise, initialize and return a fresh SectorBuilder. The
     // metadata key is equal to the prover_id.
-    pub fn init_from_metadata<S: Into<String>>(
+    pub fn init_from_metadata(
         sector_class: SectorClass,
         last_committed_sector_id: SectorId,
-        metadata_dir: S,
+        metadata_dir: String,
         prover_id: [u8; 31],
-        sealed_sector_dir: S,
-        staged_sector_dir: S,
+        sealed_sector_dir: String,
+        staged_sector_dir: String,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
         ensure_parameter_cache_hydrated(sector_class)?;
-
-        let kv_store = Arc::new(WrappedKeyValueStore {
-            inner: Box::new(SledKvs::initialize(metadata_dir.into())?),
-        });
-
-        // Initialize a SectorStore and wrap it in an Arc so we can access it
-        // from multiple threads. Our implementation assumes that the
-        // SectorStore is safe for concurrent access.
-        let sector_store = Arc::new(new_sector_store(
-            sector_class,
-            sealed_sector_dir.into(),
-            staged_sector_dir.into(),
-        ));
 
         // Configure the main worker's rendezvous channel.
         let (main_tx, main_rx) = mpsc::sync_channel(0);
@@ -74,27 +64,63 @@ impl SectorBuilder {
             (tx, workers)
         };
 
-        let SectorClass(sector_size, _) = sector_class;
+        let sector_size = sector_class.0.into();
+
+        // Initialize the key/value store in which we store metadata
+        // snapshots.
+        let kv_store = SledKvs::initialize(PathBuf::from(metadata_dir.clone()))
+            .expect("failed to initialize K/V store");
+
+        // Initialize a SectorStore and wrap it in an Arc so we can access it
+        // from multiple threads. Our implementation assumes that the
+        // SectorStore is safe for concurrent access.
+        let sector_store = new_sector_store(
+            sector_class,
+            sealed_sector_dir.clone(),
+            staged_sector_dir.clone(),
+        );
+
+        // Build the scheduler's initial state. If available, we
+        // reconstitute this state from persisted metadata. If not, we
+        // create it from scratch.
+        let state = {
+            let loaded =
+                crate::helpers::load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
+                    .expects(FATAL_NOLOAD)
+                    .map(Into::into);
+
+            loaded.unwrap_or_else(|| SectorBuilderState {
+                staged: StagedState {
+                    sector_id_nonce: u64::from(last_committed_sector_id),
+                    sectors: Default::default(),
+                },
+                sealed: Default::default(),
+            })
+        };
+
+        let max_user_bytes_per_staged_sector =
+            sector_store.sector_config().max_unsealed_bytes_per_sector();
+
+        let m = SectorMetadataManager {
+            kv_store,
+            sector_store,
+            state,
+            sealer_input_tx: seal_tx.clone(),
+            scheduler_input_tx: main_tx.clone(),
+            max_num_staged_sectors,
+            max_user_bytes_per_staged_sector,
+            prover_id,
+            sector_size,
+        };
 
         // Configure main worker.
-        let main_worker = Scheduler::start_with_metadata(
-            main_rx,
-            main_tx.clone(),
-            seal_tx.clone(),
-            kv_store.clone(),
-            sector_store.clone(),
-            last_committed_sector_id,
-            max_num_staged_sectors,
-            prover_id,
-            PaddedBytesAmount::from(sector_size),
-        );
+        let main_worker = Scheduler::start(main_rx, m);
 
         Ok(SectorBuilder {
             scheduler_tx: main_tx,
             scheduler: main_worker,
             sealers_tx: seal_tx,
             sealers: seal_workers,
-            sector_class,
         })
     }
 
@@ -165,11 +191,6 @@ impl SectorBuilder {
 
         rx.recv().expects(FATAL_NORECV_TASK)
     }
-
-    // Return the SectorBuilder's configured sector class.
-    pub fn get_sector_class(&self) -> SectorClass {
-        self.sector_class
-    }
 }
 
 impl Drop for SectorBuilder {
@@ -203,21 +224,6 @@ impl Drop for SectorBuilder {
                     .map_err(|err| println!("err joining sealer thread: {:?}", err));
             }
         }
-    }
-}
-
-pub struct WrappedKeyValueStore<T: KeyValueStore> {
-    inner: Box<T>,
-}
-impl<T: KeyValueStore> WrappedKeyValueStore<T> {
-    pub fn new(inner: T) -> Self {
-        Self {
-            inner: Box::new(inner),
-        }
-    }
-
-    pub fn inner(&self) -> &T {
-        &self.inner
     }
 }
 

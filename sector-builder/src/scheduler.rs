@@ -1,22 +1,18 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::{generate_post, PrivateReplicaInfo, SealOutput};
 use storage_proofs::sector::SectorId;
 
-use crate::builder::WrappedKeyValueStore;
 use crate::error::{err_piecenotfound, err_unrecov, Result};
-use crate::helpers::{
-    add_piece, get_seal_status, get_sealed_sector_health, get_sectors_ready_for_sealing,
-    load_snapshot, persist_snapshot, SnapshotKey,
-};
+use crate::helpers::SnapshotKey;
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
 use crate::sealer::SealerInput;
-use crate::state::{SectorBuilderState, StagedState};
+use crate::state::SectorBuilderState;
 use crate::store::SectorStore;
 use crate::GetSealedSectorResult::WithHealth;
 use crate::{
@@ -24,7 +20,6 @@ use crate::{
 };
 use filecoin_proofs::pieces::get_piece_start_byte;
 
-const FATAL_NOLOAD: &str = "could not load snapshot";
 const FATAL_NORECV: &str = "could not receive task";
 const FATAL_NOSEND: &str = "could not send";
 const FATAL_SNPSHT: &str = "could not snapshot";
@@ -39,6 +34,7 @@ pub struct Scheduler {
 #[derive(Debug)]
 pub struct PerformHealthCheck(pub bool);
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Request {
     AddPiece(
@@ -72,50 +68,11 @@ pub enum Request {
 
 impl Scheduler {
     #[allow(clippy::too_many_arguments)]
-    pub fn start_with_metadata<T: 'static + KeyValueStore, S: 'static + SectorStore>(
+    pub fn start<T: 'static + KeyValueStore, S: 'static + SectorStore>(
         scheduler_input_rx: mpsc::Receiver<Request>,
-        scheduler_input_tx: mpsc::SyncSender<Request>,
-        sealer_input_tx: mpsc::Sender<SealerInput>,
-        kv_store: Arc<WrappedKeyValueStore<T>>,
-        sector_store: Arc<S>,
-        last_committed_sector_id: SectorId,
-        max_num_staged_sectors: u8,
-        prover_id: [u8; 31],
-        sector_size: PaddedBytesAmount,
+        mut m: SectorMetadataManager<T, S>,
     ) -> Scheduler {
         let thread = thread::spawn(move || {
-            // Build the scheduler's initial state. If available, we
-            // reconstitute this state from persisted metadata. If not, we
-            // create it from scratch.
-            let state = {
-                let loaded = load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
-                    .expects(FATAL_NOLOAD)
-                    .map(Into::into);
-
-                loaded.unwrap_or_else(|| SectorBuilderState {
-                    staged: StagedState {
-                        sector_id_nonce: u64::from(last_committed_sector_id),
-                        sectors: Default::default(),
-                    },
-                    sealed: Default::default(),
-                })
-            };
-
-            let max_user_bytes_per_staged_sector =
-                sector_store.sector_config().max_unsealed_bytes_per_sector();
-
-            let mut m = SectorMetadataManager {
-                kv_store,
-                sector_store,
-                state,
-                sealer_input_tx,
-                scheduler_input_tx: scheduler_input_tx.clone(),
-                max_num_staged_sectors,
-                max_user_bytes_per_staged_sector,
-                prover_id,
-                sector_size,
-            };
-
             loop {
                 let task = scheduler_input_rx.recv().expects(FATAL_NORECV);
 
@@ -164,15 +121,15 @@ impl Scheduler {
 // worker-threads. Other, inexpensive work (or work which needs to be performed
 // serially) is handled by the SectorBuilderStateManager itself.
 pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
-    kv_store: Arc<WrappedKeyValueStore<T>>,
-    sector_store: Arc<S>,
-    state: SectorBuilderState,
-    sealer_input_tx: mpsc::Sender<SealerInput>,
-    scheduler_input_tx: mpsc::SyncSender<Request>,
-    max_num_staged_sectors: u8,
-    max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
-    prover_id: [u8; 31],
-    sector_size: PaddedBytesAmount,
+    pub kv_store: T,
+    pub sector_store: S,
+    pub state: SectorBuilderState,
+    pub sealer_input_tx: mpsc::Sender<SealerInput>,
+    pub scheduler_input_tx: mpsc::SyncSender<Request>,
+    pub max_num_staged_sectors: u8,
+    pub max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
+    pub prover_id: [u8; 31],
+    pub sector_size: PaddedBytesAmount,
 }
 
 impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
@@ -290,7 +247,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     // Returns sealing status for the sector with specified id. If no sealed or
     // staged sector exists with the provided id, produce an error.
     pub fn get_seal_status(&self, sector_id: SectorId) -> Result<SealStatus> {
-        get_seal_status(&self.state.staged, &self.state.sealed, sector_id)
+        crate::helpers::get_seal_status(&self.state.staged, &self.state.sealed, sector_id)
     }
 
     // Write the piece to storage, obtaining the sector id with which the
@@ -302,7 +259,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         piece_path: String,
         store_until: SecondsSinceEpoch,
     ) -> Result<SectorId> {
-        let destination_sector_id = add_piece(
+        let destination_sector_id = crate::helpers::add_piece(
             &self.sector_store,
             &mut self.state.staged,
             piece_key,
@@ -352,7 +309,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         with_path
             .into_par_iter()
             .map(|(pbuf, meta)| {
-                let health = get_sealed_sector_health(&pbuf, &meta)?;
+                let health = crate::helpers::get_sealed_sector_health(&pbuf, &meta)?;
                 Ok(WithHealth(health, meta))
             })
             .collect()
@@ -440,7 +397,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
                     let meta = SealedSectorMetadata {
                         sector_id: staged_sector.sector_id,
-                        sector_access: sector_access,
+                        sector_access,
                         pieces,
                         comm_r_star,
                         comm_r,
@@ -469,7 +426,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     fn check_and_schedule(&mut self, seal_all_staged_sectors: bool) -> Result<()> {
         let staged_state = &mut self.state.staged;
 
-        let to_be_sealed = get_sectors_ready_for_sealing(
+        let to_be_sealed = crate::helpers::get_sectors_ready_for_sealing(
             staged_state,
             self.max_user_bytes_per_staged_sector,
             self.max_num_staged_sectors,
@@ -530,7 +487,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
     // Create and persist metadata snapshot.
     fn checkpoint(&self) -> Result<()> {
-        persist_snapshot(
+        crate::helpers::persist_snapshot(
             &self.kv_store,
             &SnapshotKey::new(self.prover_id, self.sector_size),
             &self.state,

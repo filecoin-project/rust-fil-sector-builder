@@ -192,14 +192,12 @@ pub(crate) unsafe fn verify_seal(
     proof: &[u8],
     comm_r: [u8; 32],
     comm_d: [u8; 32],
-    comm_r_star: [u8; 32],
     prover_id: [u8; 31],
 ) -> bool {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
         &mut comm_r.clone(),
         &mut comm_d.clone(),
-        &mut comm_r_star.clone(),
         &mut prover_id.clone(),
         sector_id,
         proof.as_ptr(),

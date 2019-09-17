@@ -232,7 +232,6 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
                 slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
                 sealed_sector.comm_r,
                 sealed_sector.comm_d,
-                sealed_sector.comm_r_star,
                 prover_id,
             ),
             "seal verification failed"

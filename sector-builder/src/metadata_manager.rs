@@ -59,9 +59,9 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                     .unwrap();
 
                 let info = if fault_set.contains(&sector.sector_id) {
-                    PrivateReplicaInfo::new_faulty(path_str, sector.comm_r)
+                    PrivateReplicaInfo::new_faulty(path_str, sector.comm_r, sector.p_aux.clone())
                 } else {
-                    PrivateReplicaInfo::new(path_str, sector.comm_r)
+                    PrivateReplicaInfo::new(path_str, sector.comm_r, sector.p_aux.clone())
                 };
 
                 replicas.insert(sector.sector_id, info);
@@ -246,11 +246,11 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                 .and_then(|output| {
                     let SealOutput {
                         comm_r,
-                        comm_r_star,
                         comm_d,
                         proof,
                         comm_ps,
                         piece_inclusion_proofs,
+                        p_aux,
                     } = output;
 
                     // generate checksum
@@ -280,9 +280,9 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         sector_id: staged_sector.sector_id,
                         sector_access,
                         pieces,
-                        comm_r_star,
                         comm_r,
                         comm_d,
+                        p_aux,
                         proof,
                         blake2b_checksum,
                         len,

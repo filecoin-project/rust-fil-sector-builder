@@ -165,7 +165,7 @@ mod tests {
         let SealOutput {
             comm_r,
             comm_d,
-            comm_r_star,
+            p_aux: _,
             proof,
             comm_ps: _,
             piece_inclusion_proofs: _,
@@ -177,7 +177,6 @@ mod tests {
                 PoRepConfig::from(sector_class),
                 comm_r,
                 comm_d,
-                comm_r_star,
                 &prover_id,
                 sector_id,
                 &proof,
@@ -246,7 +245,6 @@ mod tests {
             let is_valid = filecoin_proofs::verify_seal(
                 h.store.proofs_config().porep_config(),
                 h.seal_output.comm_d,
-                h.seal_output.comm_r_star,
                 h.seal_output.comm_r,
                 &h.prover_id,
                 h.sector_id,
@@ -255,8 +253,7 @@ mod tests {
             .expect("failed to run verify_seal");
 
             // This should always fail, because we've rotated the commitments in
-            // the call. Note that comm_d is passed for comm_r and comm_r_star
-            // for comm_d.
+            // the call. Note that comm_d is passed for comm_r for comm_d.
             assert!(!is_valid, "proof should not be valid");
         }
     }
@@ -267,6 +264,7 @@ mod tests {
         let seal_output = h.seal_output;
 
         let comm_r = seal_output.comm_r;
+        let p_aux = seal_output.p_aux.clone();
         let challenge_seed = rng.gen();
 
         let sealed_sector_path = h
@@ -280,11 +278,11 @@ mod tests {
         let private_replica_info = vec![
             (
                 SectorId::from(0),
-                PrivateReplicaInfo::new(sealed_sector_path.clone(), comm_r),
+                PrivateReplicaInfo::new(sealed_sector_path.clone(), comm_r, p_aux.clone()),
             ),
             (
                 SectorId::from(1),
-                PrivateReplicaInfo::new(sealed_sector_path.clone(), comm_r),
+                PrivateReplicaInfo::new(sealed_sector_path.clone(), comm_r, p_aux.clone()),
             ),
         ]
         .into_iter()

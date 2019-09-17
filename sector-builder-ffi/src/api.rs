@@ -1,9 +1,11 @@
 use std::mem;
 use std::ptr;
 use std::slice::from_raw_parts;
+use std::sync::{Arc, Mutex};
 
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
+use filecoin_proofs_ffi::api::{file_to_raw, raw_to_file};
 use libc;
 use once_cell::sync::OnceCell;
 use storage_proofs::sector::SectorId;
@@ -23,20 +25,6 @@ pub struct FFISectorClass {
     porep_proof_partitions: u8,
 }
 
-#[cfg(not(target_os = "windows"))]
-unsafe fn raw_to_file(raw: *mut libc::c_void) -> std::fs::File {
-    use std::os::unix::io::{FromRawFd, RawFd};
-
-    std::fs::File::from_raw_fd(raw as RawFd)
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn raw_to_file(raw: *mut libc::c_void) -> std::fs::File {
-    use std::os::window::io::{FromRawHandle, RawHandle};
-
-    std::fs::File::from_raw_handle(raw as RawHandle)
-}
-
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
 #[no_mangle]
@@ -54,12 +42,25 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
 
     let mut response: responses::AddPieceResponse = Default::default();
 
-    match (*ptr).add_piece(
-        String::from(piece_key),
-        piece_file,
-        piece_bytes_amount,
-        SecondsSinceEpoch(store_until_utc_secs),
-    ) {
+    let piece_file_arc = Arc::new(Mutex::new(piece_file));
+
+    match (*ptr)
+        .add_piece(
+            String::from(piece_key),
+            piece_file_arc.clone(),
+            piece_bytes_amount,
+            SecondsSinceEpoch(store_until_utc_secs),
+        )
+        .and_then(|sector_id| {
+            // avoid dropping the File which closes it
+            let _fd = file_to_raw(
+                Arc::try_unwrap(piece_file_arc)
+                    .expect("only took one reference")
+                    .into_inner()?,
+            );
+
+            Ok(sector_id)
+        }) {
         Ok(sector_id) => {
             response.status_code = FCPResponseStatus::FCPNoError;
             response.sector_id = u64::from(sector_id);

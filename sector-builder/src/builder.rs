@@ -116,7 +116,7 @@ impl SectorBuilder {
     pub fn add_piece(
         &self,
         piece_key: String,
-        piece_file: fs::File,
+        piece_file: Arc<Mutex<fs::File>>,
         piece_bytes_amount: u64,
         store_until: SecondsSinceEpoch,
     ) -> Result<SectorId> {

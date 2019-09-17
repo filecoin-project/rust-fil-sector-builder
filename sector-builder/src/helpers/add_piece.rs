@@ -17,7 +17,7 @@ pub fn add_piece<S: SectorStore>(
     mut staged_state: &mut StagedState,
     piece_bytes_amount: u64,
     piece_key: String,
-    piece_file: File,
+    piece_file: &mut File,
     _store_until: SecondsSinceEpoch,
 ) -> Result<SectorId> {
     let sector_mgr = sector_store.manager();

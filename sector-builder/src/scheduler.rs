@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -30,7 +30,7 @@ pub enum SchedulerTask {
     AddPiece(
         String,
         u64,
-        File,
+        Arc<Mutex<File>>,
         SecondsSinceEpoch,
         mpsc::SyncSender<Result<SectorId>>,
     ),

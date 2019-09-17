@@ -2,6 +2,7 @@ use std::collections::btree_map::BTreeMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::pieces::get_piece_start_byte;
@@ -21,6 +22,7 @@ use crate::{
 use helpers::SnapshotKey;
 
 const FATAL_SNPSHT: &str = "could not snapshot";
+const FATAL_NOLOCK: &str = "could not lock Mutex";
 
 // The SectorBuilderStateManager is the owner of all sector-related metadata.
 // It dispatches expensive operations (e.g. unseal and seal) to the sealer
@@ -139,7 +141,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         &mut self,
         piece_key: String,
         piece_bytes_amount: u64,
-        piece_file: File,
+        piece_file: Arc<Mutex<File>>,
         store_until: SecondsSinceEpoch,
     ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
         let destination_sector_id = helpers::add_piece(
@@ -147,7 +149,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             &mut self.state.staged,
             piece_bytes_amount,
             piece_key,
-            piece_file,
+            &mut *piece_file.lock().expects(FATAL_NOLOCK),
             store_until,
         )?;
 

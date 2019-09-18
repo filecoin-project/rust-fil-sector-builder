@@ -317,7 +317,7 @@ commands:
           name: Configure environment variables
           command: |
             echo 'export RUST_LOG=info' >> $BASH_ENV
-            echo 'export FILECOIN_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
+            echo 'export FIL_PROOFS_PARAMETER_CACHE="/tmp/filecoin-parameter-cache"' >> $BASH_ENV
             echo 'export RUST_BACKTRACE=1' >> $BASH_ENV
             echo 'export CARGO_HOME=/tmp/cargo' >> $BASH_ENV
             echo 'export RUSTUP_HOME=/tmp/rustup' >> $BASH_ENV
@@ -327,7 +327,7 @@ commands:
   restore_parameter_cache:
     steps:
       - restore_cache:
-          key: cargo-v5-{{ checksum "paramfetch-checksum.txt" }}
+          key: v1-proof-params-{{ checksum "paramfetch-checksum.txt" }}
           paths:
             - /tmp/filecoin-parameter-cache
   restore_rust_cache:
@@ -337,7 +337,7 @@ commands:
   save_parameter_cache:
     steps:
       - save_cache:
-          key: cargo-v5-{{ checksum "paramfetch-checksum.txt" }}
+          key: v1-proof-params-{{ checksum "paramfetch-checksum.txt" }}
           paths:
             - /tmp/filecoin-parameter-cache
   save_rust_cache:

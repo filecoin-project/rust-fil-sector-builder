@@ -14,7 +14,7 @@ use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
 use crate::metadata_manager::SectorMetadataManager;
 use crate::scheduler::{PerformHealthCheck, Scheduler, SchedulerTask};
-use crate::state::{SectorBuilderState, StagedState};
+use crate::state::SectorBuilderState;
 use crate::worker::*;
 use crate::SectorStore;
 
@@ -84,13 +84,7 @@ impl SectorBuilder {
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 
-            loaded.unwrap_or_else(|| SectorBuilderState {
-                staged: StagedState {
-                    sector_id_nonce: u64::from(last_committed_sector_id),
-                    sectors: Default::default(),
-                },
-                sealed: Default::default(),
-            })
+            loaded.unwrap_or_else(|| SectorBuilderState::new(last_committed_sector_id))
         };
 
         let max_user_bytes_per_staged_sector =

@@ -8,7 +8,7 @@ use filecoin_proofs::{PaddedBytesAmount, PrivateReplicaInfo, SealOutput, Unpadde
 use storage_proofs::sector::SectorId;
 
 use crate::error::Result;
-use crate::helpers::SnapshotKey;
+use crate::helpers;
 use crate::kv_store::KeyValueStore;
 use crate::state::SectorBuilderState;
 use crate::worker::{SealTaskPrototype, UnsealTaskPrototype};
@@ -17,6 +17,7 @@ use crate::{
     err_piecenotfound, err_unrecov, GetSealedSectorResult, PieceMetadata, SealStatus,
     SealedSectorMetadata, SecondsSinceEpoch, SectorStore, StagedSectorMetadata,
 };
+use helpers::SnapshotKey;
 
 const FATAL_SNPSHT: &str = "could not snapshot";
 
@@ -128,7 +129,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     // Returns sealing status for the sector with specified id. If no sealed or
     // staged sector exists with the provided id, produce an error.
     pub fn get_seal_status(&self, sector_id: SectorId) -> Result<SealStatus> {
-        crate::helpers::get_seal_status(&self.state.staged, &self.state.sealed, sector_id)
+        helpers::get_seal_status(&self.state.staged, &self.state.sealed, sector_id)
     }
 
     // Write the piece to storage, obtaining the sector id with which the
@@ -140,7 +141,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         piece_path: String,
         store_until: SecondsSinceEpoch,
     ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
-        let destination_sector_id = crate::helpers::add_piece(
+        let destination_sector_id = helpers::add_piece(
             &self.sector_store,
             &mut self.state.staged,
             piece_key,
@@ -192,7 +193,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         with_path
             .into_par_iter()
             .map(|(pbuf, meta)| {
-                let health = crate::helpers::get_sealed_sector_health(&pbuf, &meta)?;
+                let health = helpers::get_sealed_sector_health(&pbuf, &meta)?;
                 Ok(WithHealth(health, meta))
             })
             .collect()
@@ -253,9 +254,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                     } = output;
 
                     // generate checksum
-                    let blake2b_checksum = crate::helpers::calculate_checksum(&sector_path)?
-                        .as_ref()
-                        .to_vec();
+                    let blake2b_checksum =
+                        helpers::calculate_checksum(&sector_path)?.as_ref().to_vec();
 
                     // get number of bytes in sealed sector-file
                     let len = std::fs::metadata(&sector_path)?.len();
@@ -310,7 +310,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     ) -> Result<Vec<SealTaskPrototype>> {
         let staged_state = &mut self.state.staged;
 
-        let to_be_sealed = crate::helpers::get_sectors_ready_for_sealing(
+        let to_be_sealed = helpers::get_sectors_ready_for_sealing(
             staged_state,
             self.max_user_bytes_per_staged_sector,
             self.max_num_staged_sectors,
@@ -369,7 +369,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
     // Create and persist metadata snapshot.
     fn checkpoint(&self) -> Result<()> {
-        crate::helpers::persist_snapshot(
+        helpers::persist_snapshot(
             &self.kv_store,
             &SnapshotKey::new(self.prover_id, self.sector_size),
             &self.state,

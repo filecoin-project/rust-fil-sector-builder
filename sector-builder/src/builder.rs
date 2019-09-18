@@ -9,6 +9,7 @@ use storage_proofs::sector::SectorId;
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
 use crate::error::{Result, SectorBuilderErr};
+use crate::helpers;
 use crate::helpers::SnapshotKey;
 use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
@@ -80,7 +81,7 @@ impl SectorBuilder {
         // create it from scratch.
         let state = {
             let loaded =
-                crate::helpers::load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
+                helpers::load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 

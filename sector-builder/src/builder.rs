@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -42,10 +41,10 @@ impl SectorBuilder {
     pub fn init_from_metadata(
         sector_class: SectorClass,
         last_committed_sector_id: SectorId,
-        metadata_dir: String,
+        metadata_dir: impl AsRef<Path>,
         prover_id: [u8; 31],
-        sealed_sector_dir: String,
-        staged_sector_dir: String,
+        sealed_sector_dir: impl AsRef<Path>,
+        staged_sector_dir: impl AsRef<Path>,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder> {
         ensure_parameter_cache_hydrated(sector_class)?;
@@ -69,17 +68,12 @@ impl SectorBuilder {
 
         // Initialize the key/value store in which we store metadata
         // snapshots.
-        let kv_store = SledKvs::initialize(PathBuf::from(metadata_dir.clone()))
-            .expect("failed to initialize K/V store");
+        let kv_store = SledKvs::initialize(metadata_dir).expect("failed to initialize K/V store");
 
         // Initialize a SectorStore and wrap it in an Arc so we can access it
         // from multiple threads. Our implementation assumes that the
         // SectorStore is safe for concurrent access.
-        let sector_store = new_sector_store(
-            sector_class,
-            sealed_sector_dir.clone(),
-            staged_sector_dir.clone(),
-        );
+        let sector_store = new_sector_store(sector_class, sealed_sector_dir, staged_sector_dir);
 
         // Build the scheduler's initial state. If available, we
         // reconstitute this state from persisted metadata. If not, we

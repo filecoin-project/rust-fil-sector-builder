@@ -31,8 +31,8 @@ pub enum SectorAccessProto {
 }
 
 pub struct DiskManager {
-    staging_path: String,
-    sealed_path: String,
+    staging_path: PathBuf,
+    sealed_path: PathBuf,
 
     // A sector ID presentation with a defined protocol
     sector_access_proto: SectorAccessProto,
@@ -350,15 +350,15 @@ impl SectorStore for ConcreteSectorStore {
 
 pub fn new_sector_store(
     sector_class: SectorClass,
-    sealed_path: String,
-    staging_path: String,
+    sealed_sector_dir: impl AsRef<Path>,
+    staged_sector_dir: impl AsRef<Path>,
 ) -> ConcreteSectorStore {
     // By default, support on-000000000000-dddddddddd format
     let default_access_proto = SectorAccessProto::Original(0);
 
     let manager = Box::new(DiskManager {
-        staging_path,
-        sealed_path,
+        staging_path: staged_sector_dir.as_ref().to_owned(),
+        sealed_path: sealed_sector_dir.as_ref().to_owned(),
         sector_access_proto: default_access_proto,
         sector_segment_id: 0u32,
     });

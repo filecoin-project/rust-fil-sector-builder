@@ -4,7 +4,7 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::scheduler::Request;
+use crate::scheduler::SchedulerTask;
 use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
@@ -13,12 +13,12 @@ const FATAL_NOLOCK: &str = "error acquiring task lock";
 const FATAL_RCVTSK: &str = "error receiving seal task";
 const FATAL_SNDRLT: &str = "error sending result";
 
-pub struct SealerWorker {
+pub struct Worker {
     pub id: usize,
     pub thread: Option<thread::JoinHandle<()>>,
 }
 
-pub enum SealerInput {
+pub enum WorkerTask {
     Seal {
         piece_lens: Vec<UnpaddedBytesAmount>,
         porep_config: PoRepConfig,
@@ -26,7 +26,7 @@ pub enum SealerInput {
         sealed_sector_path: PathBuf,
         sector_id: SectorId,
         staged_sector_path: PathBuf,
-        done_tx: mpsc::SyncSender<Request>,
+        done_tx: mpsc::SyncSender<SchedulerTask>,
     },
     Unseal {
         porep_config: PoRepConfig,
@@ -36,17 +36,17 @@ pub enum SealerInput {
         piece_start_byte: UnpaddedByteIndex,
         piece_len: UnpaddedBytesAmount,
         caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
-        done_tx: mpsc::SyncSender<Request>,
+        done_tx: mpsc::SyncSender<SchedulerTask>,
     },
     Shutdown,
 }
 
-impl SealerWorker {
+impl Worker {
     pub fn start(
         id: usize,
-        seal_task_rx: Arc<Mutex<mpsc::Receiver<SealerInput>>>,
+        seal_task_rx: Arc<Mutex<mpsc::Receiver<WorkerTask>>>,
         prover_id: [u8; 31],
-    ) -> SealerWorker {
+    ) -> Worker {
         let thread = thread::spawn(move || loop {
             // Acquire a lock on the rx end of the channel, get a task,
             // relinquish the lock and return the task. The receiver is mutexed
@@ -58,7 +58,7 @@ impl SealerWorker {
 
             // Dispatch to the appropriate task-handler.
             match task {
-                SealerInput::Seal {
+                WorkerTask::Seal {
                     porep_config,
                     sector_id,
                     sealed_sector_access,
@@ -77,7 +77,7 @@ impl SealerWorker {
                     );
 
                     done_tx
-                        .send(Request::HandleSealResult(
+                        .send(SchedulerTask::HandleSealResult(
                             sector_id,
                             sealed_sector_access,
                             sealed_sector_path,
@@ -85,7 +85,7 @@ impl SealerWorker {
                         ))
                         .expects(FATAL_SNDRLT);
                 }
-                SealerInput::Unseal {
+                WorkerTask::Unseal {
                     porep_config,
                     source_path,
                     destination_path,
@@ -107,14 +107,17 @@ impl SealerWorker {
                     .map(|num_bytes_unsealed| (num_bytes_unsealed, destination_path));
 
                     done_tx
-                        .send(Request::HandleRetrievePieceResult(result, caller_done_tx))
+                        .send(SchedulerTask::HandleRetrievePieceResult(
+                            result,
+                            caller_done_tx,
+                        ))
                         .expects(FATAL_SNDRLT);
                 }
-                SealerInput::Shutdown => break,
+                WorkerTask::Shutdown => break,
             }
         });
 
-        SealerWorker {
+        Worker {
             id,
             thread: Some(thread),
         }

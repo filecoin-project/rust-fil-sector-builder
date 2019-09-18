@@ -11,9 +11,9 @@ use crate::error::{err_piecenotfound, err_unrecov, Result};
 use crate::helpers::SnapshotKey;
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
-use crate::sealer::SealerInput;
 use crate::state::SectorBuilderState;
 use crate::store::SectorStore;
+use crate::worker::WorkerTask;
 use crate::GetSealedSectorResult::WithHealth;
 use crate::{
     GetSealedSectorResult, PaddedBytesAmount, PieceMetadata, SecondsSinceEpoch, UnpaddedBytesAmount,
@@ -36,7 +36,7 @@ pub struct PerformHealthCheck(pub bool);
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum Request {
+pub enum SchedulerTask {
     AddPiece(
         String,
         u64,
@@ -69,7 +69,7 @@ pub enum Request {
 impl Scheduler {
     #[allow(clippy::too_many_arguments)]
     pub fn start<T: 'static + KeyValueStore, S: 'static + SectorStore>(
-        scheduler_input_rx: mpsc::Receiver<Request>,
+        scheduler_input_rx: mpsc::Receiver<SchedulerTask>,
         mut m: SectorMetadataManager<T, S>,
     ) -> Scheduler {
         let thread = thread::spawn(move || {
@@ -78,34 +78,34 @@ impl Scheduler {
 
                 // Dispatch to the appropriate task-handler.
                 match task {
-                    Request::AddPiece(key, amt, path, store_until, tx) => {
+                    SchedulerTask::AddPiece(key, amt, path, store_until, tx) => {
                         tx.send(m.add_piece(key, amt, path, store_until))
                             .expects(FATAL_NOSEND);
                     }
-                    Request::GetSealStatus(sector_id, tx) => {
+                    SchedulerTask::GetSealStatus(sector_id, tx) => {
                         tx.send(m.get_seal_status(sector_id)).expects(FATAL_NOSEND);
                     }
-                    Request::RetrievePiece(piece_key, tx) => m.retrieve_piece(piece_key, tx),
-                    Request::GetSealedSectors(check_health, tx) => {
+                    SchedulerTask::RetrievePiece(piece_key, tx) => m.retrieve_piece(piece_key, tx),
+                    SchedulerTask::GetSealedSectors(check_health, tx) => {
                         tx.send(m.get_sealed_sectors(check_health.0))
                             .expects(FATAL_NOSEND);
                     }
-                    Request::GetStagedSectors(tx) => {
+                    SchedulerTask::GetStagedSectors(tx) => {
                         tx.send(m.get_staged_sectors()).expect(FATAL_NOSEND);
                     }
-                    Request::SealAllStagedSectors(tx) => {
+                    SchedulerTask::SealAllStagedSectors(tx) => {
                         tx.send(m.seal_all_staged_sectors()).expects(FATAL_NOSEND);
                     }
-                    Request::HandleSealResult(sector_id, access, path, result) => {
+                    SchedulerTask::HandleSealResult(sector_id, access, path, result) => {
                         m.handle_seal_result(sector_id, access, path, result);
                     }
-                    Request::HandleRetrievePieceResult(result, tx) => {
+                    SchedulerTask::HandleRetrievePieceResult(result, tx) => {
                         m.handle_retrieve_piece_result(result, tx);
                     }
-                    Request::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
+                    SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
                         m.generate_post(&comm_rs, &chg_seed, faults, tx)
                     }
-                    Request::Shutdown => break,
+                    SchedulerTask::Shutdown => break,
                 }
             }
         });
@@ -124,8 +124,8 @@ pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
     pub kv_store: T,
     pub sector_store: S,
     pub state: SectorBuilderState,
-    pub sealer_input_tx: mpsc::Sender<SealerInput>,
-    pub scheduler_input_tx: mpsc::SyncSender<Request>,
+    pub sealer_input_tx: mpsc::Sender<WorkerTask>,
+    pub scheduler_input_tx: mpsc::SyncSender<SchedulerTask>,
     pub max_num_staged_sectors: u8,
     pub max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
     pub prover_id: [u8; 31],
@@ -211,7 +211,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         .new_staging_sector_access(sealed_sector.sector_id)
                         .map_err(failure::Error::from)?;
 
-                    Ok(SealerInput::Unseal {
+                    Ok(WorkerTask::Unseal {
                         porep_config: self.sector_store.proofs_config().porep_config(),
                         source_path: self
                             .sector_store
@@ -238,7 +238,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                 .expects(FATAL_SLRSND),
             Err(err) => {
                 self.scheduler_input_tx
-                    .send(Request::HandleRetrievePieceResult(Err(err), done_tx))
+                    .send(SchedulerTask::HandleRetrievePieceResult(Err(err), done_tx))
                     .expects(FATAL_SLRSND);
             }
         }
@@ -470,7 +470,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
             self.sealer_input_tx
                 .clone()
-                .send(SealerInput::Seal {
+                .send(WorkerTask::Seal {
                     piece_lens,
                     porep_config: self.sector_store.proofs_config().porep_config(),
                     sealed_sector_access,

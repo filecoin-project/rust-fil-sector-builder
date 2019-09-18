@@ -15,20 +15,20 @@ use crate::error::{Result, SectorBuilderErr};
 use crate::helpers::SnapshotKey;
 use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
-use crate::scheduler::{PerformHealthCheck, Request, Scheduler, SectorMetadataManager};
-use crate::sealer::*;
+use crate::scheduler::{PerformHealthCheck, Scheduler, SchedulerTask, SectorMetadataManager};
 use crate::state::{SectorBuilderState, StagedState};
+use crate::worker::*;
 use crate::SectorStore;
 
 pub struct SectorBuilder {
     // Prevents FFI consumers from queueing behind long-running seal operations.
-    sealers_tx: mpsc::Sender<SealerInput>,
+    sealers_tx: mpsc::Sender<WorkerTask>,
 
     // For additional seal concurrency, add more workers here.
-    sealers: Vec<SealerWorker>,
+    sealers: Vec<Worker>,
 
     // The main worker's queue.
-    scheduler_tx: mpsc::SyncSender<Request>,
+    scheduler_tx: mpsc::SyncSender<SchedulerTask>,
 
     // The main worker. Owns all mutable state for the SectorBuilder.
     scheduler: Scheduler,
@@ -58,7 +58,7 @@ impl SectorBuilder {
             let rx = Arc::new(Mutex::new(rx));
 
             let workers = (0..NUM_SEAL_WORKERS)
-                .map(|n| SealerWorker::start(n, rx.clone(), prover_id))
+                .map(|n| Worker::start(n, rx.clone(), prover_id))
                 .collect();
 
             (tx, workers)
@@ -134,38 +134,38 @@ impl SectorBuilder {
         store_until: SecondsSinceEpoch,
     ) -> Result<SectorId> {
         log_unrecov(self.run_blocking(|tx| {
-            Request::AddPiece(piece_key, piece_bytes_amount, piece_path, store_until, tx)
+            SchedulerTask::AddPiece(piece_key, piece_bytes_amount, piece_path, store_until, tx)
         }))
     }
 
     // Returns sealing status for the sector with specified id. If no sealed or
     // staged sector exists with the provided id, produce an error.
     pub fn get_seal_status(&self, sector_id: SectorId) -> Result<SealStatus> {
-        log_unrecov(self.run_blocking(|tx| Request::GetSealStatus(sector_id, tx)))
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::GetSealStatus(sector_id, tx)))
     }
 
     // Unseals the sector containing the referenced piece and returns its
     // bytes. Produces an error if this sector builder does not have a sealed
     // sector containing the referenced piece.
     pub fn read_piece_from_sealed_sector(&self, piece_key: String) -> Result<Vec<u8>> {
-        log_unrecov(self.run_blocking(|tx| Request::RetrievePiece(piece_key, tx)))
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::RetrievePiece(piece_key, tx)))
     }
 
     // For demo purposes. Schedules sealing of all staged sectors.
     pub fn seal_all_staged_sectors(&self) -> Result<()> {
-        log_unrecov(self.run_blocking(Request::SealAllStagedSectors))
+        log_unrecov(self.run_blocking(SchedulerTask::SealAllStagedSectors))
     }
 
     // Returns all sealed sector metadata.
     pub fn get_sealed_sectors(&self, check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
-        log_unrecov(
-            self.run_blocking(|tx| Request::GetSealedSectors(PerformHealthCheck(check_health), tx)),
-        )
+        log_unrecov(self.run_blocking(|tx| {
+            SchedulerTask::GetSealedSectors(PerformHealthCheck(check_health), tx)
+        }))
     }
 
     // Returns all staged sector metadata.
     pub fn get_staged_sectors(&self) -> Result<Vec<StagedSectorMetadata>> {
-        log_unrecov(self.run_blocking(Request::GetStagedSectors))
+        log_unrecov(self.run_blocking(SchedulerTask::GetStagedSectors))
     }
 
     // Generates a proof-of-spacetime. Blocks the calling thread.
@@ -176,12 +176,15 @@ impl SectorBuilder {
         faults: Vec<SectorId>,
     ) -> Result<Vec<u8>> {
         log_unrecov(self.run_blocking(|tx| {
-            Request::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, faults, tx)
+            SchedulerTask::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, faults, tx)
         }))
     }
 
     // Run a task, blocking on the return channel.
-    fn run_blocking<T, F: FnOnce(mpsc::SyncSender<T>) -> Request>(&self, with_sender: F) -> T {
+    fn run_blocking<T, F: FnOnce(mpsc::SyncSender<T>) -> SchedulerTask>(
+        &self,
+        with_sender: F,
+    ) -> T {
         let (tx, rx) = mpsc::sync_channel(0);
 
         self.scheduler_tx
@@ -198,13 +201,13 @@ impl Drop for SectorBuilder {
         // Shut down main worker and sealers, too.
         let _ = self
             .scheduler_tx
-            .send(Request::Shutdown)
+            .send(SchedulerTask::Shutdown)
             .map_err(|err| println!("err sending Shutdown to scheduler: {:?}", err));
 
         for _ in &mut self.sealers {
             let _ = self
                 .sealers_tx
-                .send(SealerInput::Shutdown)
+                .send(WorkerTask::Shutdown)
                 .map_err(|err| println!("err sending Shutdown to sealer: {:?}", err));
         }
 

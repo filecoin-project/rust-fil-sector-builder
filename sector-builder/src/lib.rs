@@ -24,6 +24,6 @@ mod helpers;
 mod kv_store;
 mod metadata;
 mod scheduler;
-mod sealer;
 mod state;
 mod store;
+mod worker;

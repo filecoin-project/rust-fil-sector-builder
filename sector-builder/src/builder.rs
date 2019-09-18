@@ -105,8 +105,6 @@ impl SectorBuilder {
             kv_store,
             sector_store,
             state,
-            sealer_input_tx: seal_tx.clone(),
-            scheduler_input_tx: main_tx.clone(),
             max_num_staged_sectors,
             max_user_bytes_per_staged_sector,
             prover_id,
@@ -114,7 +112,7 @@ impl SectorBuilder {
         };
 
         // Configure main worker.
-        let main_worker = Scheduler::start(main_rx, m);
+        let main_worker = Scheduler::start(main_tx.clone(), main_rx, seal_tx.clone(), m);
 
         Ok(SectorBuilder {
             scheduler_tx: main_tx,

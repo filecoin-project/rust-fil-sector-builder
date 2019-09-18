@@ -13,7 +13,7 @@ use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, SealedSectorMetadata, StagedSectorMetadata};
 use crate::state::SectorBuilderState;
 use crate::store::SectorStore;
-use crate::worker::WorkerTask;
+use crate::worker::{SealTaskPrototype, UnsealTaskPrototype, WorkerTask};
 use crate::GetSealedSectorResult::WithHealth;
 use crate::{
     GetSealedSectorResult, PaddedBytesAmount, PieceMetadata, SecondsSinceEpoch, UnpaddedBytesAmount,
@@ -23,7 +23,6 @@ use filecoin_proofs::pieces::get_piece_start_byte;
 const FATAL_NORECV: &str = "could not receive task";
 const FATAL_NOSEND: &str = "could not send";
 const FATAL_SNPSHT: &str = "could not snapshot";
-const FATAL_SLRSND: &str = "could not send to sealer";
 const FATAL_HUNGUP: &str = "could not send to ret channel";
 const FATAL_NOSECT: &str = "could not find sector";
 
@@ -69,23 +68,52 @@ pub enum SchedulerTask {
 impl Scheduler {
     #[allow(clippy::too_many_arguments)]
     pub fn start<T: 'static + KeyValueStore, S: 'static + SectorStore>(
-        scheduler_input_rx: mpsc::Receiver<SchedulerTask>,
+        scheduler_tx: mpsc::SyncSender<SchedulerTask>,
+        scheduler_rx: mpsc::Receiver<SchedulerTask>,
+        worker_tx: mpsc::Sender<WorkerTask>,
         mut m: SectorMetadataManager<T, S>,
     ) -> Scheduler {
         let thread = thread::spawn(move || {
             loop {
-                let task = scheduler_input_rx.recv().expects(FATAL_NORECV);
+                let task = scheduler_rx.recv().expects(FATAL_NORECV);
 
                 // Dispatch to the appropriate task-handler.
                 match task {
                     SchedulerTask::AddPiece(key, amt, path, store_until, tx) => {
-                        tx.send(m.add_piece(key, amt, path, store_until))
-                            .expects(FATAL_NOSEND);
+                        match m.add_piece(key, amt, path, store_until) {
+                            Ok((sector_id, protos)) => {
+                                for p in protos {
+                                    worker_tx
+                                        .send(WorkerTask::from_seal_proto(p, scheduler_tx.clone()))
+                                        .expects(FATAL_NOSEND);
+                                }
+
+                                tx.send(Ok(sector_id)).expects(FATAL_NOSEND);
+                            }
+                            Err(err) => {
+                                tx.send(Err(err)).expects(FATAL_NOSEND);
+                            }
+                        }
                     }
                     SchedulerTask::GetSealStatus(sector_id, tx) => {
                         tx.send(m.get_seal_status(sector_id)).expects(FATAL_NOSEND);
                     }
-                    SchedulerTask::RetrievePiece(piece_key, tx) => m.retrieve_piece(piece_key, tx),
+                    SchedulerTask::RetrievePiece(piece_key, tx) => {
+                        match m.create_retrieve_piece_task_proto(piece_key) {
+                            Ok(proto) => {
+                                worker_tx
+                                    .send(WorkerTask::from_unseal_proto(
+                                        proto,
+                                        tx.clone(),
+                                        scheduler_tx.clone(),
+                                    ))
+                                    .expects(FATAL_NOSEND);
+                            }
+                            Err(err) => {
+                                tx.send(Err(err)).expects(FATAL_NOSEND);
+                            }
+                        }
+                    }
                     SchedulerTask::GetSealedSectors(check_health, tx) => {
                         tx.send(m.get_sealed_sectors(check_health.0))
                             .expects(FATAL_NOSEND);
@@ -93,14 +121,26 @@ impl Scheduler {
                     SchedulerTask::GetStagedSectors(tx) => {
                         tx.send(m.get_staged_sectors()).expect(FATAL_NOSEND);
                     }
-                    SchedulerTask::SealAllStagedSectors(tx) => {
-                        tx.send(m.seal_all_staged_sectors()).expects(FATAL_NOSEND);
-                    }
+                    SchedulerTask::SealAllStagedSectors(tx) => match m.seal_all_staged_sectors() {
+                        Ok(protos) => {
+                            for p in protos {
+                                worker_tx
+                                    .send(WorkerTask::from_seal_proto(p, scheduler_tx.clone()))
+                                    .expects(FATAL_NOSEND);
+                            }
+
+                            tx.send(Ok(())).expects(FATAL_NOSEND);
+                        }
+                        Err(err) => {
+                            tx.send(Err(err)).expects(FATAL_NOSEND);
+                        }
+                    },
                     SchedulerTask::HandleSealResult(sector_id, access, path, result) => {
                         m.handle_seal_result(sector_id, access, path, result);
                     }
                     SchedulerTask::HandleRetrievePieceResult(result, tx) => {
-                        m.handle_retrieve_piece_result(result, tx);
+                        tx.send(m.read_unsealed_bytes_from(result))
+                            .expects(FATAL_NOSEND);
                     }
                     SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
                         m.generate_post(&comm_rs, &chg_seed, faults, tx)
@@ -124,8 +164,6 @@ pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
     pub kv_store: T,
     pub sector_store: S,
     pub state: SectorBuilderState,
-    pub sealer_input_tx: mpsc::Sender<WorkerTask>,
-    pub scheduler_input_tx: mpsc::SyncSender<SchedulerTask>,
     pub max_num_staged_sectors: u8,
     pub max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
     pub prover_id: [u8; 31],
@@ -176,72 +214,55 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         return_channel.send(output).expects(FATAL_HUNGUP);
     }
 
-    // Schedules unseal on worker thread. Any errors encountered while
-    // retrieving are send to done_tx.
-    pub fn retrieve_piece(&self, piece_key: String, done_tx: mpsc::SyncSender<Result<Vec<u8>>>) {
-        let done_tx_c = done_tx.clone();
-
-        let task = Ok(()).and_then(|_| {
-            let opt_sealed_sector = self.state.sealed.sectors.values().find(|sector| {
-                sector
-                    .pieces
-                    .iter()
-                    .any(|piece| piece.piece_key == piece_key)
-            });
-
-            opt_sealed_sector
-                .ok_or_else(|| err_piecenotfound(piece_key.to_string()).into())
-                .and_then(|sealed_sector| {
-                    let piece = sealed_sector
-                        .pieces
-                        .iter()
-                        .find(|p| p.piece_key == piece_key)
-                        .ok_or_else(|| err_piecenotfound(piece_key.clone()))?;
-
-                    let piece_lengths: Vec<_> = sealed_sector
-                        .pieces
-                        .iter()
-                        .take_while(|p| p.piece_key != piece_key)
-                        .map(|p| p.num_bytes)
-                        .collect();
-
-                    let staged_sector_access = self
-                        .sector_store
-                        .manager()
-                        .new_staging_sector_access(sealed_sector.sector_id)
-                        .map_err(failure::Error::from)?;
-
-                    Ok(WorkerTask::Unseal {
-                        porep_config: self.sector_store.proofs_config().porep_config(),
-                        source_path: self
-                            .sector_store
-                            .manager()
-                            .sealed_sector_path(&sealed_sector.sector_access),
-                        destination_path: self
-                            .sector_store
-                            .manager()
-                            .staged_sector_path(&staged_sector_access),
-                        sector_id: sealed_sector.sector_id,
-                        piece_start_byte: get_piece_start_byte(&piece_lengths, piece.num_bytes),
-                        piece_len: piece.num_bytes,
-                        caller_done_tx: done_tx_c,
-                        done_tx: self.scheduler_input_tx.clone(),
-                    })
-                })
+    // Creates a task prototype for retrieving (unsealing) a piece from a
+    // sealed sector.
+    pub fn create_retrieve_piece_task_proto(
+        &self,
+        piece_key: String,
+    ) -> Result<UnsealTaskPrototype> {
+        let opt_sealed_sector = self.state.sealed.sectors.values().find(|sector| {
+            sector
+                .pieces
+                .iter()
+                .any(|piece| piece.piece_key == piece_key)
         });
 
-        match task {
-            Ok(task) => self
-                .sealer_input_tx
-                .clone()
-                .send(task)
-                .expects(FATAL_SLRSND),
-            Err(err) => {
-                self.scheduler_input_tx
-                    .send(SchedulerTask::HandleRetrievePieceResult(Err(err), done_tx))
-                    .expects(FATAL_SLRSND);
-            }
-        }
+        let sealed_sector =
+            opt_sealed_sector.ok_or_else(|| err_piecenotfound(piece_key.to_string()))?;
+
+        let piece = sealed_sector
+            .pieces
+            .iter()
+            .find(|p| p.piece_key == piece_key)
+            .ok_or_else(|| err_piecenotfound(piece_key.clone()))?;
+
+        let piece_lengths: Vec<_> = sealed_sector
+            .pieces
+            .iter()
+            .take_while(|p| p.piece_key != piece_key)
+            .map(|p| p.num_bytes)
+            .collect();
+
+        let staged_sector_access = self
+            .sector_store
+            .manager()
+            .new_staging_sector_access(sealed_sector.sector_id)
+            .map_err(failure::Error::from)?;
+
+        Ok(UnsealTaskPrototype {
+            porep_config: self.sector_store.proofs_config().porep_config(),
+            source_path: self
+                .sector_store
+                .manager()
+                .sealed_sector_path(&sealed_sector.sector_access),
+            destination_path: self
+                .sector_store
+                .manager()
+                .staged_sector_path(&staged_sector_access),
+            sector_id: sealed_sector.sector_id,
+            piece_start_byte: get_piece_start_byte(&piece_lengths, piece.num_bytes),
+            piece_len: piece.num_bytes,
+        })
     }
 
     // Returns sealing status for the sector with specified id. If no sealed or
@@ -251,14 +272,14 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     }
 
     // Write the piece to storage, obtaining the sector id with which the
-    // piece-bytes are now associated.
+    // piece-bytes are now associated and a vector of SealTaskPrototypes.
     pub fn add_piece(
         &mut self,
         piece_key: String,
         piece_bytes_amount: u64,
         piece_path: String,
         store_until: SecondsSinceEpoch,
-    ) -> Result<SectorId> {
+    ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
         let destination_sector_id = crate::helpers::add_piece(
             &self.sector_store,
             &mut self.state.staged,
@@ -268,16 +289,18 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             store_until,
         )?;
 
-        self.check_and_schedule(false)?;
+        let to_seal = self.check_and_schedule(false)?;
         self.checkpoint()?;
 
-        Ok(destination_sector_id)
+        Ok((destination_sector_id, to_seal))
     }
 
     // For demo purposes. Schedules sealing of all staged sectors.
-    pub fn seal_all_staged_sectors(&mut self) -> Result<()> {
-        self.check_and_schedule(true)?;
-        self.checkpoint()
+    pub fn seal_all_staged_sectors(&mut self) -> Result<Vec<SealTaskPrototype>> {
+        let to_seal = self.check_and_schedule(true)?;
+        self.checkpoint()?;
+
+        Ok(to_seal)
     }
 
     // Produces a vector containing metadata for all sealed sectors that this
@@ -321,13 +344,13 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         Ok(self.state.staged.sectors.values().cloned().collect())
     }
 
-    // Update metadata to reflect the sealing results.
-    pub fn handle_retrieve_piece_result(
+    // Read the raw (without bit-padding) bytes from the provided path into a
+    // buffer and return the buffer.
+    pub fn read_unsealed_bytes_from(
         &mut self,
         result: Result<(UnpaddedBytesAmount, PathBuf)>,
-        return_channel: mpsc::SyncSender<Result<Vec<u8>>>,
-    ) {
-        let result = result.and_then(|(n, pbuf)| {
+    ) -> Result<Vec<u8>> {
+        result.and_then(|(n, pbuf)| {
             let buffer = self.sector_store.manager().read_raw(
                 pbuf.to_str()
                     .ok_or_else(|| format_err!("conversion failed"))?,
@@ -336,9 +359,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             )?;
 
             Ok(buffer)
-        });
-
-        return_channel.send(result).expects(FATAL_NOSEND);
+        })
     }
 
     // Update metadata to reflect the sealing results.
@@ -421,9 +442,12 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         self.checkpoint().expects(FATAL_SNPSHT);
     }
 
-    // Check for sectors which should no longer receive new user piece-bytes and
-    // schedule them for sealing.
-    fn check_and_schedule(&mut self, seal_all_staged_sectors: bool) -> Result<()> {
+    // Returns a vector of SealTaskPrototype, each representing a sector which
+    // is to be sealed.
+    fn check_and_schedule(
+        &mut self,
+        seal_all_staged_sectors: bool,
+    ) -> Result<Vec<SealTaskPrototype>> {
         let staged_state = &mut self.state.staged;
 
         let to_be_sealed = crate::helpers::get_sectors_ready_for_sealing(
@@ -432,6 +456,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             self.max_num_staged_sectors,
             seal_all_staged_sectors,
         );
+
+        let mut to_seal: Vec<SealTaskPrototype> = Default::default();
 
         // Mark the to-be-sealed sectors as no longer accepting data and then
         // schedule sealing.
@@ -468,21 +494,17 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             // more pieces to it
             staged_sector.seal_status = SealStatus::Sealing;
 
-            self.sealer_input_tx
-                .clone()
-                .send(WorkerTask::Seal {
-                    piece_lens,
-                    porep_config: self.sector_store.proofs_config().porep_config(),
-                    sealed_sector_access,
-                    sealed_sector_path,
-                    sector_id,
-                    staged_sector_path,
-                    done_tx: self.scheduler_input_tx.clone(),
-                })
-                .expects(FATAL_SLRSND);
+            to_seal.push(SealTaskPrototype {
+                piece_lens,
+                porep_config: self.sector_store.proofs_config().porep_config(),
+                sealed_sector_access,
+                sealed_sector_path,
+                sector_id,
+                staged_sector_path,
+            });
         }
 
-        Ok(())
+        Ok(to_seal)
     }
 
     // Create and persist metadata snapshot.

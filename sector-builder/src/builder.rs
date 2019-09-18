@@ -1,13 +1,11 @@
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::types::{PoRepConfig, PoStConfig, SectorClass};
-use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
-
-const FATAL_NOLOAD: &str = "could not load snapshot";
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
@@ -15,17 +13,20 @@ use crate::error::{Result, SectorBuilderErr};
 use crate::helpers::SnapshotKey;
 use crate::kv_store::{KeyValueStore, SledKvs};
 use crate::metadata::*;
-use crate::scheduler::{PerformHealthCheck, Scheduler, SchedulerTask, SectorMetadataManager};
+use crate::metadata_manager::SectorMetadataManager;
+use crate::scheduler::{PerformHealthCheck, Scheduler, SchedulerTask};
 use crate::state::{SectorBuilderState, StagedState};
 use crate::worker::*;
 use crate::SectorStore;
 
+const FATAL_NOLOAD: &str = "could not load snapshot";
+
 pub struct SectorBuilder {
     // Prevents FFI consumers from queueing behind long-running seal operations.
-    sealers_tx: mpsc::Sender<WorkerTask>,
+    worker_tx: mpsc::Sender<WorkerTask>,
 
     // For additional seal concurrency, add more workers here.
-    sealers: Vec<Worker>,
+    workers: Vec<Worker>,
 
     // The main worker's queue.
     scheduler_tx: mpsc::SyncSender<SchedulerTask>,
@@ -49,15 +50,15 @@ impl SectorBuilder {
     ) -> Result<SectorBuilder> {
         ensure_parameter_cache_hydrated(sector_class)?;
 
-        // Configure the main worker's rendezvous channel.
-        let (main_tx, main_rx) = mpsc::sync_channel(0);
+        // Configure the scheduler's rendezvous channel.
+        let (scheduler_tx, scheduler_rx) = mpsc::sync_channel(0);
 
-        // Configure seal queue workers and channels.
-        let (seal_tx, seal_workers) = {
+        // Configure workers and channels.
+        let (worker_tx, workers) = {
             let (tx, rx) = mpsc::channel();
             let rx = Arc::new(Mutex::new(rx));
 
-            let workers = (0..NUM_SEAL_WORKERS)
+            let workers = (0..NUM_WORKERS)
                 .map(|n| Worker::start(n, rx.clone(), prover_id))
                 .collect();
 
@@ -111,14 +112,13 @@ impl SectorBuilder {
             sector_size,
         };
 
-        // Configure main worker.
-        let main_worker = Scheduler::start(main_tx.clone(), main_rx, seal_tx.clone(), m);
+        let scheduler = Scheduler::start(scheduler_tx.clone(), scheduler_rx, worker_tx.clone(), m);
 
         Ok(SectorBuilder {
-            scheduler_tx: main_tx,
-            scheduler: main_worker,
-            sealers_tx: seal_tx,
-            sealers: seal_workers,
+            scheduler_tx,
+            scheduler,
+            worker_tx,
+            workers,
         })
     }
 
@@ -166,7 +166,7 @@ impl SectorBuilder {
         log_unrecov(self.run_blocking(SchedulerTask::GetStagedSectors))
     }
 
-    // Generates a proof-of-spacetime. Blocks the calling thread.
+    // Generates a proof-of-spacetime.
     pub fn generate_post(
         &self,
         comm_rs: &[[u8; 32]],
@@ -202,9 +202,9 @@ impl Drop for SectorBuilder {
             .send(SchedulerTask::Shutdown)
             .map_err(|err| println!("err sending Shutdown to scheduler: {:?}", err));
 
-        for _ in &mut self.sealers {
+        for _ in &mut self.workers {
             let _ = self
-                .sealers_tx
+                .worker_tx
                 .send(WorkerTask::Shutdown)
                 .map_err(|err| println!("err sending Shutdown to sealer: {:?}", err));
         }
@@ -218,7 +218,7 @@ impl Drop for SectorBuilder {
                 .map_err(|err| println!("err joining scheduler thread: {:?}", err));
         }
 
-        for worker in &mut self.sealers {
+        for worker in &mut self.workers {
             if let Some(thread) = worker.thread.take() {
                 let _ = thread
                     .join()

@@ -252,6 +252,11 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
             .seek(SeekFrom::Start(0))
             .expect("failed to seek to the start");
 
+        fourth_piece_file
+            .as_file_mut()
+            .seek(SeekFrom::Start(0))
+            .expect("failed to seek to the start");
+
         assert_eq!(
             format!("{:x?}", get_sealed_piece(&mut ctx, b_ptr, 124, &fourth_piece_key).comm_p),
             format!(

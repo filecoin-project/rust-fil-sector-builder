@@ -1,14 +1,9 @@
 use std::mem;
 use std::ptr;
 use std::slice::from_raw_parts;
-use std::sync::{Arc, Mutex};
 
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
-use filecoin_proofs_ffi::api::{file_to_raw, raw_to_file};
-use filedescriptor::{
-    FileDescriptor, FromRawFileDescriptor, IntoRawFileDescriptor, RawFileDescriptor,
-};
 use libc;
 use once_cell::sync::OnceCell;
 use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
@@ -25,42 +20,50 @@ pub struct FFISectorClass {
     porep_proof_partitions: u8,
 }
 
+pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
+
+/// Filedescriptor, that does not drop the file descriptor when dropped.
+pub struct FileDescriptorRef(nodrop::NoDrop<std::fs::File>);
+
+impl FileDescriptorRef {
+    #[cfg(not(target_os = "windows"))]
+    pub unsafe fn new(raw: std::os::unix::io::RawFd) -> Self {
+        use std::os::unix::io::FromRawFd;
+        FileDescriptorRef(nodrop::NoDrop::new(std::fs::File::from_raw_fd(raw)))
+    }
+}
+
+impl std::io::Read for FileDescriptorRef {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
 /// The caller is responsible for closing the file descriptor.
 #[no_mangle]
+#[cfg(not(target_os = "windows"))]
 pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
-    piece_fd_raw: RawFileDescriptor,
+    piece_fd_raw: libc::c_int,
     piece_bytes_amount: u64,
     store_until_utc_secs: u64,
 ) -> *mut responses::AddPieceResponse {
     init_log();
 
     let piece_key = c_str_to_rust_str(piece_key);
-    let piece_fd = raw_to_file(piece_fd);
+    let piece_fd = FileDescriptorRef::new(piece_fd_raw);
 
     let mut response: responses::AddPieceResponse = Default::default();
 
-    let piece_file_arc = Arc::new(Mutex::new(piece_fd));
-
-    match (*ptr)
-        .add_piece(
-            String::from(piece_key),
-            piece_file_arc.clone(),
-            piece_bytes_amount,
-            SecondsSinceEpoch(store_until_utc_secs),
-        )
-        .and_then(|sector_id| {
-            // avoid dropping the File which closes it
-            let _fd = Arc::try_unwrap(piece_file_arc)
-                .expect("only took one reference")
-                .into_inner()?
-                .into_raw_file_descriptor();
-
-            Ok(sector_id)
-        }) {
+    match (*ptr).add_piece(
+        String::from(piece_key),
+        piece_fd,
+        piece_bytes_amount,
+        SecondsSinceEpoch(store_until_utc_secs),
+    ) {
         Ok(sector_id) => {
             response.status_code = FCPResponseStatus::FCPNoError;
             response.sector_id = u64::from(sector_id);
@@ -111,8 +114,9 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
 /// Returns the merkle root for a piece after piece padding and alignment.
 /// The caller is responsible for closing the file descriptor.
 #[no_mangle]
+#[cfg(not(target_os = "windows"))]
 pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
-    piece_fd_raw: RawFileDescriptor,
+    piece_fd_raw: libc::c_int,
     unpadded_piece_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
     init_log();
@@ -122,7 +126,6 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
 
 /// Returns sector sealing status for the provided sector id if it exists. If
 /// we don't know about the provided sector id, produce an error.
-///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
     ptr: *mut SectorBuilder,
@@ -603,6 +606,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_piece_inclusion_proof
 /// Deallocates a GeneratePieceCommitmentResponse.
 ///
 #[no_mangle]
+#[cfg(not(target_os = "windows"))]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_response(
     ptr: *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse,
 ) {

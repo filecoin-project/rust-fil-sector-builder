@@ -116,7 +116,7 @@ pub(crate) unsafe fn add_piece(
     let resp = sector_builder_ffi_add_piece(
         ptr,
         c_piece_key,
-        c_piece_fd as *mut libc::c_void,
+        c_piece_fd,
         piece_len as u64,
         store_until_utc_secs,
     );
@@ -175,7 +175,7 @@ pub(crate) unsafe fn generate_piece_commitment(
     piece_len: usize,
 ) -> [u8; 32] {
     use std::os::unix::io::AsRawFd;
-    let c_piece_fd = piece_file.as_raw_fd() as *mut libc::c_void;
+    let c_piece_fd = piece_file.as_raw_fd();
 
     let resp = sector_builder_ffi_generate_piece_commitment(c_piece_fd, piece_len as u64);
     defer!(ctx.destructors.push(Box::new(move || {

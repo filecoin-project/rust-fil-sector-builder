@@ -6,7 +6,9 @@ use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
 use ffi_toolkit::free_c_str;
 use libc;
-use sector_builder::{SealedSectorHealth, SectorBuilder, SectorBuilderErr, SectorManagerErr};
+use sector_builder::{SealedSectorHealth, SectorBuilderErr, SectorManagerErr};
+
+use crate::api::SectorBuilder;
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]

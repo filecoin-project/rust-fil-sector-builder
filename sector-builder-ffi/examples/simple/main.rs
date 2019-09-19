@@ -105,7 +105,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         let MakePiece { file, bytes, key } = make_piece(cfg.first_piece_bytes);
         assert_eq!(
             124,
-            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
         );
     }
 
@@ -114,7 +114,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         let MakePiece { file, bytes, key } = make_piece(cfg.second_piece_bytes);
         assert_eq!(
             124,
-            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
         );
     }
 
@@ -123,7 +123,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         let MakePiece { file, bytes, key } = make_piece(cfg.third_piece_bytes);
         assert_eq!(
             125,
-            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
         );
     }
 
@@ -136,7 +136,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
 
     // add fourth piece, which triggers sealing of the first sector
     let MakePiece {
-        file: fourth_piece_file,
+        file: mut fourth_piece_file,
         bytes: fourth_piece_bytes,
         key: fourth_piece_key,
     } = make_piece(cfg.fourth_piece_bytes);
@@ -146,7 +146,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
             &mut ctx,
             a_ptr,
             &fourth_piece_key,
-            fourth_piece_file.path(),
+            fourth_piece_file.as_file(),
             fourth_piece_bytes.len(),
             5000000
         )
@@ -158,7 +158,7 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
         let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
         assert_eq!(
             126,
-            add_piece(&mut ctx, a_ptr, &key, file.path(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
         );
     }
 
@@ -243,13 +243,25 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
     // piece
     {
         let mut file = NamedTempFile::new().expect("could not create named temp file");
-        let _ = file.write_all(&fourth_piece_bytes);
+        file.write_all(&fourth_piece_bytes)
+            .expect("failed to write");
+        file.as_file().sync_all().unwrap();
+
+        use std::io::{Seek, SeekFrom};
+        file.as_file_mut()
+            .seek(SeekFrom::Start(0))
+            .expect("failed to seek to the start");
+
+        fourth_piece_file
+            .as_file_mut()
+            .seek(SeekFrom::Start(0))
+            .expect("failed to seek to the start");
 
         assert_eq!(
             format!("{:x?}", get_sealed_piece(&mut ctx, b_ptr, 124, &fourth_piece_key).comm_p),
             format!(
                 "{:x?}",
-                generate_piece_commitment(&mut ctx, fourth_piece_file.path(), fourth_piece_bytes.len())
+                generate_piece_commitment(&mut ctx, fourth_piece_file.as_file_mut(), fourth_piece_bytes.len())
             ),
             "client (generate_piece_commitment) and server (during seal) generated different piece commitments"
         );

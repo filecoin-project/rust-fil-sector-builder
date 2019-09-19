@@ -20,7 +20,7 @@ pub struct FFISectorClass {
     porep_proof_partitions: u8,
 }
 
-pub type SectorBuilder<'a> = sector_builder::SectorBuilder<&'a mut std::fs::File>;
+pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
 
 /// Filedescriptor, that does not drop the file descriptor when dropped.
 pub struct FileDescriptorRef(nodrop::NoDrop<std::fs::File>);
@@ -45,7 +45,7 @@ impl std::io::Read for FileDescriptorRef {
 #[no_mangle]
 #[cfg(not(target_os = "windows"))]
 pub unsafe extern "C" fn sector_builder_ffi_add_piece(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
     piece_fd_raw: libc::c_int,
     piece_bytes_amount: u64,
@@ -54,15 +54,13 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     init_log();
 
     let piece_key = c_str_to_rust_str(piece_key);
-    use std::os::unix::io::FromRawFd;
-    // let piece_fd = FileDescriptorRef::new(piece_fd_raw);
-    let mut piece_fd = std::fs::File::from_raw_fd(piece_fd_raw);
+    let piece_fd = FileDescriptorRef::new(piece_fd_raw);
 
     let mut response: responses::AddPieceResponse = Default::default();
 
     match (*ptr).add_piece(
         String::from(piece_key),
-        &mut piece_fd,
+        piece_fd,
         piece_bytes_amount,
         SecondsSinceEpoch(store_until_utc_secs),
     ) {
@@ -130,7 +128,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
 /// we don't know about the provided sector id, produce an error.
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
     sector_id: u64,
 ) -> *mut responses::GetSealStatusResponse {
     init_log();
@@ -188,7 +186,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
     check_health: bool,
 ) -> *mut responses::GetSealedSectorsResponse {
     init_log();
@@ -252,7 +250,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
 ) -> *mut responses::GetStagedSectorsResponse {
     init_log();
     let mut response: responses::GetStagedSectorsResponse = Default::default();
@@ -320,7 +318,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_generate_post(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
@@ -408,7 +406,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
 ) -> *mut responses::ReadPieceFromSealedSectorResponse {
     init_log();
@@ -438,7 +436,7 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_seal_all_staged_sectors(
-    ptr: *mut SectorBuilder<'_>,
+    ptr: *mut SectorBuilder,
 ) -> *mut responses::SealAllStagedSectorsResponse {
     init_log();
 
@@ -614,7 +612,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_re
 /// Destroys a SectorBuilder.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_sector_builder(ptr: *mut SectorBuilder<'_>) {
+pub unsafe extern "C" fn sector_builder_ffi_destroy_sector_builder(ptr: *mut SectorBuilder) {
     let _ = Box::from_raw(ptr);
 }
 

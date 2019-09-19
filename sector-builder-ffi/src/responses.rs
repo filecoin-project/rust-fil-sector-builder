@@ -108,14 +108,14 @@ pub fn err_code_and_msg(err: &Error) -> (FCPResponseStatus, *const libc::c_char)
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct InitSectorBuilderResponse<'a> {
+pub struct InitSectorBuilderResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub sector_builder: *mut SectorBuilder<'a>,
+    pub sector_builder: *mut SectorBuilder,
 }
 
-impl<'a> Default for InitSectorBuilderResponse<'a> {
-    fn default() -> InitSectorBuilderResponse<'a> {
+impl Default for InitSectorBuilderResponse {
+    fn default() -> InitSectorBuilderResponse {
         InitSectorBuilderResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
@@ -208,6 +208,7 @@ pub struct GetSealStatusResponse {
     // sealed sector metadata
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
+    pub comm_r_star: [u8; 32],
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
     pub proof_len: libc::size_t,
@@ -233,6 +234,7 @@ impl Default for GetSealStatusResponse {
             error_msg: ptr::null(),
             comm_d: Default::default(),
             comm_r: Default::default(),
+            comm_r_star: Default::default(),
             pieces_len: 0,
             pieces_ptr: ptr::null(),
             proof_len: 0,

@@ -9,12 +9,11 @@ extern crate scopeguard;
 #[macro_use]
 extern crate log;
 
-use std::io::Write;
+use std::io::{Seek, SeekFrom};
 use std::slice;
 use std::{env, fs};
 
 use ffi_toolkit::c_str_to_pbuf;
-use tempfile::NamedTempFile;
 
 use deallocator::*;
 use helpers::*;
@@ -242,16 +241,6 @@ unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure
     // storage client and miner should generate identical CommP for the same
     // piece
     {
-        let mut file = NamedTempFile::new().expect("could not create named temp file");
-        file.write_all(&fourth_piece_bytes)
-            .expect("failed to write");
-        file.as_file().sync_all().unwrap();
-
-        use std::io::{Seek, SeekFrom};
-        file.as_file_mut()
-            .seek(SeekFrom::Start(0))
-            .expect("failed to seek to the start");
-
         fourth_piece_file
             .as_file_mut()
             .seek(SeekFrom::Start(0))

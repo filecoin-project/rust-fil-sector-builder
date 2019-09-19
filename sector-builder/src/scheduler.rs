@@ -1,6 +1,5 @@
-use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
@@ -26,11 +25,11 @@ pub struct PerformHealthCheck(pub bool);
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum SchedulerTask {
+pub enum SchedulerTask<T> {
     AddPiece(
         String,
         u64,
-        Arc<Mutex<File>>,
+        T,
         SecondsSinceEpoch,
         mpsc::SyncSender<Result<SectorId>>,
     ),
@@ -58,10 +57,14 @@ pub enum SchedulerTask {
 
 impl Scheduler {
     #[allow(clippy::too_many_arguments)]
-    pub fn start<T: 'static + KeyValueStore, S: 'static + SectorStore>(
-        scheduler_tx: mpsc::SyncSender<SchedulerTask>,
-        scheduler_rx: mpsc::Receiver<SchedulerTask>,
-        worker_tx: mpsc::Sender<WorkerTask>,
+    pub fn start<
+        T: 'static + KeyValueStore,
+        S: 'static + SectorStore,
+        U: 'static + std::io::Read + Send,
+    >(
+        scheduler_tx: mpsc::SyncSender<SchedulerTask<U>>,
+        scheduler_rx: mpsc::Receiver<SchedulerTask<U>>,
+        worker_tx: mpsc::Sender<WorkerTask<U>>,
         mut m: SectorMetadataManager<T, S>,
     ) -> Scheduler {
         let thread = thread::spawn(move || {

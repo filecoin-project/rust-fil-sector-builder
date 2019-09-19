@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::iter::Iterator;
 
 use filecoin_proofs::pieces::{
@@ -17,7 +16,7 @@ pub fn add_piece<S: SectorStore>(
     mut staged_state: &mut StagedState,
     piece_bytes_amount: u64,
     piece_key: String,
-    piece_file: &mut File,
+    piece_file: impl std::io::Read,
     _store_until: SecondsSinceEpoch,
 ) -> Result<SectorId> {
     let sector_mgr = sector_store.manager();

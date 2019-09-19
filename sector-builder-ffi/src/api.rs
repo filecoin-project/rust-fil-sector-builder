@@ -6,13 +6,13 @@ use std::sync::{Arc, Mutex};
 use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
 use filecoin_proofs_ffi::api::{file_to_raw, raw_to_file};
+use filedescriptor::{
+    FileDescriptor, FromRawFileDescriptor, IntoRawFileDescriptor, RawFileDescriptor,
+};
 use libc;
 use once_cell::sync::OnceCell;
+use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
-
-use sector_builder::{
-    GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch, SectorBuilder,
-};
 
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
@@ -27,22 +27,23 @@ pub struct FFISectorClass {
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
+/// The caller is responsible for closing the file descriptor.
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
-    piece_fd: *mut libc::c_void,
+    piece_fd_raw: RawFileDescriptor,
     piece_bytes_amount: u64,
     store_until_utc_secs: u64,
 ) -> *mut responses::AddPieceResponse {
     init_log();
 
     let piece_key = c_str_to_rust_str(piece_key);
-    let piece_file = raw_to_file(piece_fd);
+    let piece_fd = raw_to_file(piece_fd);
 
     let mut response: responses::AddPieceResponse = Default::default();
 
-    let piece_file_arc = Arc::new(Mutex::new(piece_file));
+    let piece_file_arc = Arc::new(Mutex::new(piece_fd));
 
     match (*ptr)
         .add_piece(
@@ -53,11 +54,10 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
         )
         .and_then(|sector_id| {
             // avoid dropping the File which closes it
-            let _fd = file_to_raw(
-                Arc::try_unwrap(piece_file_arc)
-                    .expect("only took one reference")
-                    .into_inner()?,
-            );
+            let _fd = Arc::try_unwrap(piece_file_arc)
+                .expect("only took one reference")
+                .into_inner()?
+                .into_raw_file_descriptor();
 
             Ok(sector_id)
         }) {
@@ -109,14 +109,15 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
 }
 
 /// Returns the merkle root for a piece after piece padding and alignment.
+/// The caller is responsible for closing the file descriptor.
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
-    piece_fd: *mut libc::c_void,
+    piece_fd_raw: RawFileDescriptor,
     unpadded_piece_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
     init_log();
 
-    filecoin_proofs_ffi::api::generate_piece_commitment(piece_fd, unpadded_piece_size)
+    filecoin_proofs_ffi::api::generate_piece_commitment(piece_fd_raw, unpadded_piece_size)
 }
 
 /// Returns sector sealing status for the provided sector id if it exists. If

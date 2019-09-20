@@ -4,16 +4,19 @@
 #![allow(improper_ctypes)]
 #![allow(dead_code)]
 
-#[macro_use(defer)]
-extern crate scopeguard;
 #[macro_use]
 extern crate log;
+extern crate nix;
+#[macro_use(defer)]
+extern crate scopeguard;
 
 use std::io::{Seek, SeekFrom};
-use std::slice;
+use std::time::Duration;
 use std::{env, fs};
+use std::{slice, thread};
 
 use ffi_toolkit::c_str_to_pbuf;
+use nix::unistd::ForkResult;
 
 use deallocator::*;
 use helpers::*;
@@ -27,13 +30,20 @@ mod plumbing;
 mod porcelain;
 mod provingset;
 
-#[derive(Debug)]
-struct TestConfiguration {
+#[derive(Debug, Clone, Copy)]
+struct LifecycleTestConfiguration {
     first_piece_bytes: usize,
     second_piece_bytes: usize,
     sector_class: sector_builder_ffi_FFISectorClass,
     third_piece_bytes: usize,
     fourth_piece_bytes: usize,
+    max_num_staged_sectors: u8,
+    max_secs_to_seal_sector: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct KillRestartTestConfiguration {
+    sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
     max_secs_to_seal_sector: u64,
 }
@@ -48,7 +58,146 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
-    let cfg = TestConfiguration {
+    unsafe { kill_restart_recovery(sector_size).unwrap() };
+    unsafe { sector_builder_lifecycle(sector_size).unwrap() };
+}
+
+/// A test which simulates a sector builder being shutdown impolitely (SIGKILL).
+/// Ensures that sealing jobs which had started but not yet completed are
+/// resumed and that sector builder metadata is successfully recreated from the
+/// last snapshot.
+///
+unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> {
+    let cfg = KillRestartTestConfiguration {
+        sector_class: sector_builder_ffi_FFISectorClass {
+            sector_size,
+            porep_proof_partitions: 2,
+        },
+        max_num_staged_sectors: 2,
+        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+    };
+
+    info!("running FFI test using cfg={:?}", cfg);
+
+    let metadata_dir_a = tempfile::tempdir()?;
+    let staging_dir_a = tempfile::tempdir()?;
+    let sealed_dir_a = tempfile::tempdir()?;
+
+    // clone the directory-paths so that we can move them into the child process
+    let metadata_dir_a_c = metadata_dir_a.path().clone();
+    let staging_dir_a_c = staging_dir_a.path().clone();
+    let sealed_dir_a_c = sealed_dir_a.path().clone();
+
+    let prover_id = [1u8; 31];
+
+    // use an OS pipe so that we can communicate between processes
+    let (mut done_tx, mut done_rx) = pipe_channel::channel();
+
+    // The exclusive file lock which sled acquires on its database is scoped to
+    // a file descriptor pointing to the opened database-file, and the lock is
+    // released when that file descriptor is no longer valid. Instead of
+    // exposing the file descriptor to this test, we instead let the file
+    // descriptor be owned by a process which we control. When we kill the
+    // process, the OS closes its file descriptors which in turn releases the
+    // lock. This behavior would not be exhibited were we to spawn a thread
+    // instead of forking a process.
+    //
+    // Motivated by rust-fil-sector-builder/17.
+    match nix::unistd::fork() {
+        Ok(ForkResult::Parent { child, .. }) => {
+            let _ = done_rx.recv().unwrap();
+
+            // send SIGKILL to the child process
+            nix::sys::signal::kill(child, nix::sys::signal::SIGKILL).unwrap();
+
+            // wait for the child process to die
+            nix::sys::wait::waitpid(child, None).unwrap();
+        }
+        Ok(ForkResult::Child) => {
+            let max_user_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
+
+            let mut ctx: Deallocator = Default::default();
+
+            let ptr = init_sector_builder(
+                &mut ctx,
+                &metadata_dir_a_c,
+                &staging_dir_a_c,
+                &sealed_dir_a_c,
+                prover_id,
+                500,
+                cfg.sector_class,
+                cfg.max_num_staged_sectors,
+            );
+
+            // add a piece which completely fills a staged sector (and triggers
+            // sealing)
+            {
+                let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
+                assert_eq!(
+                    501,
+                    add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000)
+                );
+            }
+
+            // block until sector sealing begins
+            poll_for_sector_sealing_status(
+                ptr,
+                501,
+                sector_builder_ffi_FFISealStatus_Sealing,
+                cfg.max_secs_to_seal_sector * 2,
+            );
+
+            std::mem::drop(ctx);
+
+            // send the completion signal
+            done_tx.send(true).expect("failed to send");
+
+            // loop until the parent kills this process
+            loop {
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+        Err(err) => panic!(err),
+    }
+
+    // initialize a sector builder - sealing will resume immediately
+    let ptr = init_sector_builder(
+        &mut Default::default(),
+        &metadata_dir_a,
+        &staging_dir_a,
+        &sealed_dir_a,
+        prover_id,
+        500,
+        cfg.sector_class,
+        cfg.max_num_staged_sectors,
+    );
+
+    // block until the sector has sealed
+    poll_for_sector_sealing_status(
+        ptr,
+        501,
+        sector_builder_ffi_FFISealStatus_Sealed,
+        cfg.max_secs_to_seal_sector * 2,
+    );
+
+    Ok(())
+}
+
+/// A somewhat-exhaustive battery of sector builder tests, including:
+///
+/// - bin packing (adding pieces)
+/// - sealing
+/// - PoSt generation
+/// - proof verification
+/// - unsealing
+/// - piece commitment generation
+/// - PIP verification
+/// - migrating metadata and sector directories
+/// - polling for sector sealing-status
+/// - getting sealed and staged sector metadata
+///
+unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Error> {
+    let cfg = LifecycleTestConfiguration {
         sector_class: sector_builder_ffi_FFISectorClass {
             sector_size,
             porep_proof_partitions: 2,
@@ -61,12 +210,8 @@ fn main() {
         max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
     };
 
-    info!("running FFI tests using cfg={:?}", cfg);
+    info!("running FFI test using cfg={:?}", cfg);
 
-    unsafe { sector_builder_lifecycle(cfg).unwrap() };
-}
-
-unsafe fn sector_builder_lifecycle(cfg: TestConfiguration) -> Result<(), failure::Error> {
     let metadata_dir_a = tempfile::tempdir()?;
     let metadata_dir_b = tempfile::tempdir()?;
     let staging_dir_a = tempfile::tempdir()?;

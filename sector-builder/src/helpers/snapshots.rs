@@ -26,8 +26,8 @@ pub fn load_snapshot<T: KeyValueStore>(
     let result: Option<Vec<u8>> = kv_store.get(&Vec::from(key))?;
 
     if let Some(val) = result {
-        return serde_cbor::from_slice(&val[..])
-            .map_err(failure::Error::from)
+        return serde_cbor::from_slice::<SectorBuilderState>(&val[..])
+            .map_err(From::from)
             .map(Option::Some);
     }
 

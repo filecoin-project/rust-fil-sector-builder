@@ -51,10 +51,10 @@ pub fn add_piece<S: SectorStore>(
             .map_err(Into::into)
             .and_then(|num_bytes_written| {
                 if num_bytes_written != expected_num_bytes_written {
-                    Err(
-                        err_inc_write(u64::from(num_bytes_written), u64::from(piece_bytes_len))
-                            .into(),
-                    )
+                    Err(err_inc_write(
+                        u64::from(num_bytes_written),
+                        u64::from(piece_bytes_len),
+                    ))
                 } else {
                     Ok(s.sector_id)
                 }
@@ -70,7 +70,7 @@ pub fn add_piece<S: SectorStore>(
                 sector_id
             })
     } else {
-        Err(err_unrecov("unable to retrieve sector from state-map").into())
+        Err(err_unrecov("unable to retrieve sector from state-map"))
     }
 }
 
@@ -82,7 +82,10 @@ fn compute_destination_sector_id(
     num_bytes_in_piece: UnpaddedBytesAmount,
 ) -> Result<Option<SectorId>> {
     if num_bytes_in_piece > max_bytes_per_sector {
-        Err(err_overflow(num_bytes_in_piece.into(), max_bytes_per_sector.into()).into())
+        Err(err_overflow(
+            num_bytes_in_piece.into(),
+            max_bytes_per_sector.into(),
+        ))
     } else {
         let mut vector = candidate_sectors.to_vec();
         vector.sort_by(|a, b| a.sector_id.cmp(&b.sector_id));

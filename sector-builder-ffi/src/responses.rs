@@ -3,7 +3,6 @@ use std::mem;
 use std::ptr;
 
 use drop_struct_macro_derive::DropStructMacro;
-use failure::Error;
 use ffi_toolkit::free_c_str;
 use libc;
 use sector_builder::{SealedSectorHealth, SectorBuilderErr, SectorManagerErr};
@@ -77,29 +76,27 @@ impl Default for GeneratePoStResponse {
 // err_code_and_msg accepts an Error struct and produces a tuple of response
 // status code and a pointer to a C string, both of which can be used to set
 // fields in a response struct to be returned from an FFI call.
-pub fn err_code_and_msg(err: &Error) -> (FCPResponseStatus, *const libc::c_char) {
+pub fn err_code_and_msg(err: &SectorBuilderErr) -> (FCPResponseStatus, *const libc::c_char) {
     use crate::responses::FCPResponseStatus::*;
 
     let msg = CString::new(format!("{}", err)).unwrap();
     let ptr = msg.as_ptr();
     mem::forget(msg);
 
-    match err.downcast_ref() {
-        Some(SectorBuilderErr::OverflowError { .. }) => return (FCPCallerError, ptr),
-        Some(SectorBuilderErr::IncompleteWriteError { .. }) => return (FCPReceiverError, ptr),
-        Some(SectorBuilderErr::Unrecoverable(_, _)) => return (FCPReceiverError, ptr),
-        Some(SectorBuilderErr::PieceNotFound(_)) => return (FCPCallerError, ptr),
-        None => (),
-    }
-
-    match err.downcast_ref() {
-        Some(SectorManagerErr::UnclassifiedError(_)) => return (FCPUnclassifiedError, ptr),
-        Some(SectorManagerErr::CallerError(_)) => return (FCPCallerError, ptr),
-        Some(SectorManagerErr::ReceiverError(_)) => return (FCPReceiverError, ptr),
-        None => (),
-    }
-
-    (FCPUnclassifiedError, ptr)
+    let status = match err {
+        SectorBuilderErr::OverflowError { .. } => FCPCallerError,
+        SectorBuilderErr::IncompleteWriteError { .. } => FCPReceiverError,
+        SectorBuilderErr::Unrecoverable(_, _) => FCPReceiverError,
+        SectorBuilderErr::PieceNotFound(_) => FCPCallerError,
+        SectorBuilderErr::Generic(_) => FCPUnclassifiedError,
+        SectorBuilderErr::FilecoinProofs(_) => FCPUnclassifiedError,
+        SectorBuilderErr::SectorManager(sector_manager_err) => match sector_manager_err {
+            SectorManagerErr::UnclassifiedError(_) => FCPUnclassifiedError,
+            SectorManagerErr::CallerError(_) => FCPCallerError,
+            SectorManagerErr::ReceiverError(_) => FCPReceiverError,
+        },
+    };
+    (status, ptr)
 }
 
 ///////////////////////////////////////////////////////////////////////////////

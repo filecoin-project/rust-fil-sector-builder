@@ -26,7 +26,11 @@ log = "0.4.7"
 rayon = "1.1.0"
 
 [dependencies.sled]
-version = "0.24"
+# Upgrade to at least version 0.29 once it is released. This new version is needed for the error
+# handling
+#version = "0.29"
+git = "https://github.com/spacejam/sled"
+rev = "7d01393b65330c6ce8d1492014a673e61bce5429"
 optional = true
 
 [dev-dependencies]

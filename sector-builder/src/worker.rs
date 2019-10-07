@@ -3,7 +3,7 @@ use std::thread;
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 
-use crate::error::Result;
+use crate::error::{self, Result};
 use crate::scheduler::SchedulerTask;
 use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
 use std::path::PathBuf;
@@ -144,7 +144,8 @@ impl Worker {
                         &prover_id,
                         sector_id,
                         &piece_lens,
-                    );
+                    )
+                    .map_err(error::err_filecoin_proofs);
 
                     done_tx
                         .send(SchedulerTask::HandleSealResult(
@@ -174,6 +175,7 @@ impl Worker {
                         piece_start_byte,
                         piece_len,
                     )
+                    .map_err(error::err_filecoin_proofs)
                     .map(|num_bytes_unsealed| (num_bytes_unsealed, destination_path));
 
                     done_tx

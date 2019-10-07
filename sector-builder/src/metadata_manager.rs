@@ -7,7 +7,7 @@ use filecoin_proofs::pieces::get_piece_start_byte;
 use filecoin_proofs::{PaddedBytesAmount, PrivateReplicaInfo, SealOutput, UnpaddedBytesAmount};
 use storage_proofs::sector::SectorId;
 
-use crate::error::Result;
+use crate::error::{self, Result};
 use crate::helpers;
 use crate::kv_store::KeyValueStore;
 use crate::state::SectorBuilderState;
@@ -73,6 +73,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             challenge_seed,
             &replicas,
         )
+        .map_err(error::err_filecoin_proofs)
     }
 
     // Creates a task prototype for retrieving (unsealing) a piece from a
@@ -107,8 +108,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         let staged_sector_access = self
             .sector_store
             .manager()
-            .new_staging_sector_access(sealed_sector.sector_id)
-            .map_err(failure::Error::from)?;
+            .new_staging_sector_access(sealed_sector.sector_id)?;
 
         Ok(UnsealTaskPrototype {
             porep_config: self.sector_store.proofs_config().porep_config(),
@@ -230,7 +230,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         result.and_then(|(n, pbuf)| {
             let buffer = self.sector_store.manager().read_raw(
                 pbuf.to_str()
-                    .ok_or_else(|| format_err!("conversion failed"))?,
+                    .ok_or_else(|| error::err_generic("conversion failed".to_string()))?,
                 0,
                 n,
             )?;
@@ -355,8 +355,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         let sealed_sector_access = self
             .sector_store
             .manager()
-            .new_sealed_sector_access(staged_sector.sector_id)
-            .map_err(failure::Error::from)?;
+            .new_sealed_sector_access(staged_sector.sector_id)?;
 
         let sealed_sector_path = self
             .sector_store

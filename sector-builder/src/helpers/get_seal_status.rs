@@ -18,7 +18,7 @@ pub fn get_seal_status(
                 .get(&sector_id)
                 .and_then(|staged_sector| Some(staged_sector.seal_status.clone()))
         })
-        .ok_or_else(|| err_unrecov(format!("no sector with id {} found", sector_id)).into())
+        .ok_or_else(|| err_unrecov(format!("no sector with id {} found", sector_id)))
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use storage_proofs::sector::SectorId;
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
-use crate::error::{Result, SectorBuilderErr};
+use crate::error::{self, Result, SectorBuilderErr};
 use crate::helpers;
 use crate::helpers::SnapshotKey;
 use crate::kv_store::{KeyValueStore, SledKvs};
@@ -225,31 +225,31 @@ fn ensure_parameter_cache_hydrated(sector_class: SectorClass) -> Result<()> {
 
     let porep_cache_key = porep_config.get_cache_verifying_key_path();
     ensure_file(porep_cache_key)
-        .map_err(|err| format_err!("missing verifying key for PoRep: {:?}", err))?;
+        .map_err(|err| error::err_generic(format!("missing verifying key for PoRep: {:?}", err)))?;
 
     let porep_cache_params = porep_config.get_cache_params_path();
-    ensure_file(porep_cache_params)
-        .map_err(|err| format_err!("missing Groth parameters for PoRep: {:?}", err))?;
+    ensure_file(porep_cache_params).map_err(|err| {
+        error::err_generic(format!("missing Groth parameters for PoRep: {:?}", err))
+    })?;
 
     // PoSt
     let post_config: PoStConfig = sector_class.into();
 
     let post_cache_key = post_config.get_cache_verifying_key_path();
     ensure_file(post_cache_key)
-        .map_err(|err| format_err!("missing verifying key for PoSt: {:?}", err))?;
+        .map_err(|err| error::err_generic(format!("missing verifying key for PoSt: {:?}", err)))?;
 
     let post_cache_params = post_config.get_cache_params_path();
-    ensure_file(post_cache_params)
-        .map_err(|err| format_err!("missing Groth parameters for PoSt: {:?}", err))?;
+    ensure_file(post_cache_params).map_err(|err| {
+        error::err_generic(format!("missing Groth parameters for PoSt: {:?}", err))
+    })?;
 
     Ok(())
 }
 
 fn log_unrecov<T>(result: Result<T>) -> Result<T> {
-    if let Err(err) = &result {
-        if let Some(SectorBuilderErr::Unrecoverable(err, backtrace)) = err.downcast_ref() {
-            error!("unrecoverable: {:?} - {:?}", err, backtrace);
-        }
+    if let Err(SectorBuilderErr::Unrecoverable(err, backtrace)) = &result {
+        error!("unrecoverable: {:?} - {:?}", err, backtrace);
     }
 
     result
@@ -258,13 +258,16 @@ fn log_unrecov<T>(result: Result<T>) -> Result<T> {
 fn ensure_file(p: impl AsRef<Path>) -> Result<()> {
     let path_str = p.as_ref().to_string_lossy();
 
-    let metadata =
-        fs::metadata(p.as_ref()).map_err(|_| format_err!("Failed to stat: {}", path_str))?;
+    let metadata = fs::metadata(p.as_ref())
+        .map_err(|_| error::err_generic(format!("Failed to stat: {}", path_str)))?;
 
-    ensure!(metadata.is_file(), "Not a file: {}", path_str);
-    ensure!(metadata.len() > 0, "Empty file: {}", path_str);
-
-    Ok(())
+    if !metadata.is_file() {
+        Err(error::err_generic(format!("Not a file: {}", path_str)))
+    } else if metadata.len() == 0 {
+        Err(error::err_generic(format!("Empty file: {}", path_str)))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

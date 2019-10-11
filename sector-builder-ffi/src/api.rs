@@ -2,16 +2,14 @@ use std::mem;
 use std::ptr;
 use std::slice::from_raw_parts;
 
-use ffi_toolkit::rust_str_to_c_str;
-use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
+use ffi_toolkit::{c_str_to_rust_str, raw_ptr, rust_str_to_c_str, FCPResponseStatus};
 use libc;
 use once_cell::sync::OnceCell;
 use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
 use crate::responses::{
-    self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
-    FFISealedSectorHealth,
+    self, err_code_and_msg, FFIPieceMetadata, FFISealStatus, FFISealedSectorHealth,
 };
 
 #[repr(C)]

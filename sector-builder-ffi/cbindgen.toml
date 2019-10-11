@@ -20,4 +20,4 @@ prefix = "sector_builder_ffi_"
 
 [parse]
 parse_deps = true
-include = ["sector-builder", "filecoin-proofs-ffi", "filedescriptors"]
+include = ["sector-builder", "ffi-toolkit", "filecoin-proofs-ffi", "filedescriptors"]

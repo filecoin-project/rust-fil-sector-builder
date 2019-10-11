@@ -4,7 +4,7 @@ use std::ptr;
 
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
-use ffi_toolkit::free_c_str;
+use ffi_toolkit::{free_c_str, FCPResponseStatus};
 use libc;
 use sector_builder::{SealedSectorHealth, SectorBuilderErr, SectorManagerErr};
 
@@ -29,16 +29,6 @@ impl From<SealedSectorHealth> for FFISealedSectorHealth {
             SealedSectorHealth::ErrorMissing => FFISealedSectorHealth::ErrorMissing,
         }
     }
-}
-
-#[repr(C)]
-#[derive(PartialEq, Debug)]
-pub enum FCPResponseStatus {
-    // Don't use FCPSuccess, since that complicates description of 'successful' verification.
-    FCPNoError = 0,
-    FCPUnclassifiedError = 1,
-    FCPCallerError = 2,
-    FCPReceiverError = 3,
 }
 
 #[repr(C)]

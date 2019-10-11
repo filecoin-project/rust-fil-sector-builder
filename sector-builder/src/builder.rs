@@ -39,11 +39,13 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
     // Initialize and return a SectorBuilder from metadata persisted to disk if
     // it exists. Otherwise, initialize and return a fresh SectorBuilder. The
     // metadata key is equal to the prover_id.
+    #[allow(clippy::too_many_arguments)]
     pub fn init_from_metadata(
         sector_class: SectorClass,
+        current_seal_ticket: SealTicket,
         last_committed_sector_id: SectorId,
         metadata_dir: impl AsRef<Path>,
-        prover_id: [u8; 31],
+        prover_id: [u8; 32],
         sealed_sector_dir: impl AsRef<Path>,
         staged_sector_dir: impl AsRef<Path>,
         max_num_staged_sectors: u8,
@@ -85,7 +87,9 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 
-            loaded.unwrap_or_else(|| SectorBuilderState::new(last_committed_sector_id))
+            loaded.unwrap_or_else(|| {
+                SectorBuilderState::new(current_seal_ticket, last_committed_sector_id)
+            })
         };
 
         let max_user_bytes_per_staged_sector =
@@ -109,6 +113,14 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
             worker_tx,
             workers,
         })
+    }
+
+    // Sets the ticket that the sector builder will use when sealing. The ticket
+    // will be persisted to the metadata store along with seal output such that
+    // it is available in the future when a request to unseal the sector is
+    // received.
+    pub fn set_current_seal_ticket(&self, seal_ticket: SealTicket) -> Result<()> {
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::SetCurrentSealTicket(seal_ticket, tx)))
     }
 
     // Stages user piece-bytes for sealing. Note that add_piece calls are
@@ -286,9 +298,13 @@ pub mod tests {
 
         let result = SectorBuilder::<std::fs::File>::init_from_metadata(
             nonsense_sector_class,
+            SealTicket {
+                height: 0,
+                bytes: [0u8; 32],
+            },
             SectorId::from(0),
             temp_dir.clone(),
-            [0u8; 31],
+            [0u8; 32],
             temp_dir.clone(),
             temp_dir,
             1,

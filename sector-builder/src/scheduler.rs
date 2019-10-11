@@ -11,7 +11,10 @@ use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, StagedSectorMetadata};
 use crate::store::SectorStore;
 use crate::worker::{SealTaskPrototype, WorkerTask};
-use crate::{GetSealedSectorResult, SecondsSinceEpoch, SectorMetadataManager, UnpaddedBytesAmount};
+use crate::{
+    GetSealedSectorResult, SealTicket, SecondsSinceEpoch, SectorMetadataManager,
+    UnpaddedBytesAmount,
+};
 
 const FATAL_NORECV: &str = "could not receive task";
 const FATAL_NOSEND: &str = "could not send";
@@ -47,7 +50,14 @@ pub enum SchedulerTask<T> {
     ),
     RetrievePiece(String, mpsc::SyncSender<Result<Vec<u8>>>),
     SealAllStagedSectors(mpsc::SyncSender<Result<()>>),
-    HandleSealResult(SectorId, String, PathBuf, Result<SealOutput>),
+    SetCurrentSealTicket(SealTicket, mpsc::SyncSender<Result<()>>),
+    HandleSealResult {
+        sector_id: SectorId,
+        sector_access: String,
+        sector_path: PathBuf,
+        seal_ticket: SealTicket,
+        result: Result<SealOutput>,
+    },
     HandleRetrievePieceResult(
         Result<(UnpaddedBytesAmount, PathBuf)>,
         mpsc::SyncSender<Result<Vec<u8>>>,
@@ -148,8 +158,24 @@ impl Scheduler {
                             tx.send(Err(err)).expects(FATAL_NOSEND);
                         }
                     },
-                    SchedulerTask::HandleSealResult(sector_id, access, path, result) => {
-                        m.handle_seal_result(sector_id, access, path, result);
+                    SchedulerTask::SetCurrentSealTicket(seal_ticket, tx) => {
+                        m.set_current_seal_ticket(seal_ticket);
+                        tx.send(Ok(())).expects(FATAL_NOSEND);
+                    }
+                    SchedulerTask::HandleSealResult {
+                        sector_id,
+                        sector_access,
+                        sector_path,
+                        seal_ticket,
+                        result,
+                    } => {
+                        m.handle_seal_result(
+                            sector_id,
+                            sector_access,
+                            sector_path,
+                            seal_ticket,
+                            result,
+                        );
                     }
                     SchedulerTask::HandleRetrievePieceResult(result, tx) => {
                         tx.send(m.read_unsealed_bytes_from(result))

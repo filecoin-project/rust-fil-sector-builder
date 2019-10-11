@@ -61,8 +61,9 @@ mod tests {
         );
 
         SectorBuilderState {
+            current_seal_ticket: Default::default(),
+            last_committed_sector_id: 4.into(),
             staged: StagedState {
-                sector_id_nonce: 0,
                 sectors: staged_sectors,
             },
             sealed: SealedState {

@@ -5,7 +5,7 @@ use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
 use crate::scheduler::SchedulerTask;
-use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
+use crate::{PoRepConfig, SealTicket, UnpaddedByteIndex, UnpaddedBytesAmount};
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
@@ -19,10 +19,12 @@ pub struct Worker {
 }
 
 pub struct UnsealTaskPrototype {
+    pub(crate) comm_d: [u8; 32],
     pub(crate) destination_path: PathBuf,
     pub(crate) piece_len: UnpaddedBytesAmount,
     pub(crate) piece_start_byte: UnpaddedByteIndex,
     pub(crate) porep_config: PoRepConfig,
+    pub(crate) seal_ticket: SealTicket,
     pub(crate) sector_id: SectorId,
     pub(crate) source_path: PathBuf,
 }
@@ -30,6 +32,7 @@ pub struct UnsealTaskPrototype {
 pub struct SealTaskPrototype {
     pub(crate) piece_lens: Vec<UnpaddedBytesAmount>,
     pub(crate) porep_config: PoRepConfig,
+    pub(crate) seal_ticket: SealTicket,
     pub(crate) sealed_sector_access: String,
     pub(crate) sealed_sector_path: PathBuf,
     pub(crate) sector_id: SectorId,
@@ -40,6 +43,7 @@ pub enum WorkerTask<T> {
     Seal {
         piece_lens: Vec<UnpaddedBytesAmount>,
         porep_config: PoRepConfig,
+        seal_ticket: SealTicket,
         sealed_sector_access: String,
         sealed_sector_path: PathBuf,
         sector_id: SectorId,
@@ -47,13 +51,15 @@ pub enum WorkerTask<T> {
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     },
     Unseal {
-        porep_config: PoRepConfig,
-        source_path: PathBuf,
-        destination_path: PathBuf,
-        sector_id: SectorId,
-        piece_start_byte: UnpaddedByteIndex,
-        piece_len: UnpaddedBytesAmount,
         caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
+        comm_d: [u8; 32],
+        destination_path: PathBuf,
+        piece_len: UnpaddedBytesAmount,
+        piece_start_byte: UnpaddedByteIndex,
+        porep_config: PoRepConfig,
+        seal_ticket: SealTicket,
+        sector_id: SectorId,
+        source_path: PathBuf,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     },
     Shutdown,
@@ -67,6 +73,7 @@ impl<T> WorkerTask<T> {
         let SealTaskPrototype {
             piece_lens,
             porep_config,
+            seal_ticket,
             sealed_sector_access,
             sealed_sector_path,
             sector_id,
@@ -76,6 +83,7 @@ impl<T> WorkerTask<T> {
         WorkerTask::Seal {
             piece_lens,
             porep_config,
+            seal_ticket,
             sealed_sector_access,
             sealed_sector_path,
             sector_id,
@@ -90,22 +98,26 @@ impl<T> WorkerTask<T> {
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     ) -> WorkerTask<T> {
         let UnsealTaskPrototype {
-            porep_config,
-            source_path,
+            comm_d,
             destination_path,
-            sector_id,
-            piece_start_byte,
             piece_len,
+            piece_start_byte,
+            porep_config,
+            seal_ticket,
+            sector_id,
+            source_path,
         } = proto;
 
         WorkerTask::Unseal {
-            porep_config,
-            source_path,
-            destination_path,
-            sector_id,
-            piece_start_byte,
-            piece_len,
             caller_done_tx,
+            comm_d,
+            destination_path,
+            piece_len,
+            piece_start_byte,
+            porep_config,
+            seal_ticket,
+            sector_id,
+            source_path,
             done_tx,
         }
     }
@@ -115,7 +127,7 @@ impl Worker {
     pub fn start<T: 'static + Send>(
         id: usize,
         seal_task_rx: Arc<Mutex<mpsc::Receiver<WorkerTask<T>>>>,
-        prover_id: [u8; 31],
+        prover_id: [u8; 32],
     ) -> Worker {
         let thread = thread::spawn(move || loop {
             // Acquire a lock on the rx end of the channel, get a task,
@@ -131,6 +143,7 @@ impl Worker {
                 WorkerTask::Seal {
                     porep_config,
                     sector_id,
+                    seal_ticket,
                     sealed_sector_access,
                     sealed_sector_path,
                     staged_sector_path,
@@ -141,36 +154,42 @@ impl Worker {
                         porep_config,
                         &staged_sector_path,
                         &sealed_sector_path,
-                        &prover_id,
+                        prover_id,
                         sector_id,
+                        seal_ticket.bytes,
                         &piece_lens,
                     );
 
                     done_tx
-                        .send(SchedulerTask::HandleSealResult(
+                        .send(SchedulerTask::HandleSealResult {
                             sector_id,
-                            sealed_sector_access,
-                            sealed_sector_path,
+                            sector_access: sealed_sector_access,
+                            sector_path: sealed_sector_path,
+                            seal_ticket,
                             result,
-                        ))
+                        })
                         .expects(FATAL_SNDRLT);
                 }
                 WorkerTask::Unseal {
-                    porep_config,
-                    source_path,
-                    destination_path,
-                    sector_id,
-                    piece_start_byte,
-                    piece_len,
                     caller_done_tx,
+                    comm_d,
+                    destination_path,
+                    piece_len,
+                    piece_start_byte,
+                    porep_config,
+                    seal_ticket,
+                    sector_id,
+                    source_path,
                     done_tx,
                 } => {
                     let result = filecoin_proofs::get_unsealed_range(
                         porep_config,
                         &source_path,
                         &destination_path,
-                        &prover_id,
+                        prover_id,
                         sector_id,
+                        comm_d,
+                        seal_ticket.bytes,
                         piece_start_byte,
                         piece_len,
                     )

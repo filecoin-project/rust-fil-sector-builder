@@ -185,23 +185,38 @@ pub(crate) unsafe fn generate_piece_commitment(
     (*resp).comm_p.clone()
 }
 
+pub(crate) unsafe fn set_current_seal_ticket(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    seal_ticket: sector_builder_ffi_FFISealTicket,
+) {
+    let resp = sector_builder_ffi_set_current_seal_ticket(ptr, seal_ticket);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_set_current_seal_ticket_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+}
+
 pub(crate) unsafe fn verify_seal(
     ctx: &mut Deallocator,
     sector_size: u64,
     sector_id: u64,
+    ticket: [u8; 32],
     proof: &[u8],
     comm_r: [u8; 32],
     comm_d: [u8; 32],
-    comm_r_star: [u8; 32],
-    prover_id: [u8; 31],
+    prover_id: [u8; 32],
 ) -> bool {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
         &mut comm_r.clone(),
         &mut comm_d.clone(),
-        &mut comm_r_star.clone(),
         &mut prover_id.clone(),
         sector_id,
+        &mut ticket.clone(),
         proof.as_ptr(),
         proof.len(),
     );
@@ -255,7 +270,8 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     metadata_dir: T,
     staging_dir: T,
     sealed_dir: T,
-    prover_id: [u8; 31],
+    prover_id: [u8; 32],
+    current_seal_ticket: sector_builder_ffi_FFISealTicket,
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
@@ -272,6 +288,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
 
     let resp = sector_builder_ffi_init_sector_builder(
         sector_class,
+        current_seal_ticket,
         last_committed_sector_id,
         c_metadata_dir,
         &mut prover_id.clone(),

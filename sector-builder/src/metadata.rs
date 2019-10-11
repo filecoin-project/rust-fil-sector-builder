@@ -1,4 +1,5 @@
 use filecoin_proofs::types::UnpaddedBytesAmount;
+use filecoin_proofs::PersistentAux;
 use serde::{Deserialize, Serialize};
 use storage_proofs::sector::SectorId;
 
@@ -15,7 +16,6 @@ pub struct SealedSectorMetadata {
     pub sector_id: SectorId,
     pub sector_access: String,
     pub pieces: Vec<PieceMetadata>,
-    pub comm_r_star: [u8; 32],
     pub comm_r: [u8; 32],
     pub comm_d: [u8; 32],
     pub proof: Vec<u8>,
@@ -23,6 +23,8 @@ pub struct SealedSectorMetadata {
     pub blake2b_checksum: Vec<u8>,
     /// number of bytes in the sealed sector-file as returned by `std::fs::metadata`
     pub len: u64,
+    pub p_aux: PersistentAux,
+    pub seal_ticket: SealTicket,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -39,6 +41,12 @@ pub enum SealStatus {
     Pending,
     Sealed(Box<SealedSectorMetadata>),
     Sealing,
+}
+
+#[derive(Clone, Serialize, Default, Deserialize, Debug, PartialEq)]
+pub struct SealTicket {
+    pub height: u64,
+    pub bytes: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

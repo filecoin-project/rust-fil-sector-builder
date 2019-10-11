@@ -125,6 +125,26 @@ impl Default for InitSectorBuilderResponse {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+/// SetCurrentSealTicketResponse
+////////////////////////////////
+
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct SetCurrentSealTicketResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+}
+
+impl Default for SetCurrentSealTicketResponse {
+    fn default() -> SetCurrentSealTicketResponse {
+        SetCurrentSealTicketResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
 /// AddPieceResponse
 ////////////////////
 
@@ -208,7 +228,7 @@ pub struct GetSealStatusResponse {
     // sealed sector metadata
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
-    pub comm_r_star: [u8; 32],
+    pub seal_ticket: [u8; 32],
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
     pub proof_len: libc::size_t,
@@ -234,7 +254,6 @@ impl Default for GetSealStatusResponse {
             error_msg: ptr::null(),
             comm_d: Default::default(),
             comm_r: Default::default(),
-            comm_r_star: Default::default(),
             pieces_len: 0,
             pieces_ptr: ptr::null(),
             proof_len: 0,
@@ -243,6 +262,7 @@ impl Default for GetSealStatusResponse {
             seal_status_code: FFISealStatus::Failed,
             sector_access: ptr::null(),
             sector_id: 0,
+            seal_ticket: Default::default(),
         }
     }
 }
@@ -275,7 +295,6 @@ pub struct FFIStagedSectorMetadata {
 pub struct FFISealedSectorMetadata {
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
-    pub comm_r_star: [u8; 32],
     pub pieces_len: libc::size_t,
     pub pieces_ptr: *const FFIPieceMetadata,
     pub proofs_len: libc::size_t,

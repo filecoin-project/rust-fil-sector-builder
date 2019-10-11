@@ -8,7 +8,6 @@ use filecoin_proofs::{PaddedBytesAmount, PrivateReplicaInfo, SealOutput, Unpadde
 use storage_proofs::sector::SectorId;
 
 use crate::error::Result;
-use crate::helpers;
 use crate::kv_store::KeyValueStore;
 use crate::state::SectorBuilderState;
 use crate::worker::{SealTaskPrototype, UnsealTaskPrototype};
@@ -17,6 +16,7 @@ use crate::{
     err_piecenotfound, err_unrecov, GetSealedSectorResult, PieceMetadata, SealStatus,
     SealedSectorMetadata, SecondsSinceEpoch, SectorStore, StagedSectorMetadata,
 };
+use crate::{helpers, SealTicket};
 use helpers::SnapshotKey;
 
 const FATAL_SNPSHT: &str = "could not snapshot";
@@ -31,7 +31,7 @@ pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
     pub state: SectorBuilderState,
     pub max_num_staged_sectors: u8,
     pub max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
-    pub prover_id: [u8; 31],
+    pub prover_id: [u8; 32],
     pub sector_size: PaddedBytesAmount,
 }
 
@@ -59,9 +59,9 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                     .unwrap();
 
                 let info = if fault_set.contains(&sector.sector_id) {
-                    PrivateReplicaInfo::new_faulty(path_str, sector.comm_r)
+                    PrivateReplicaInfo::new_faulty(path_str, sector.comm_r, sector.p_aux.clone())
                 } else {
-                    PrivateReplicaInfo::new(path_str, sector.comm_r)
+                    PrivateReplicaInfo::new(path_str, sector.comm_r, sector.p_aux.clone())
                 };
 
                 replicas.insert(sector.sector_id, info);
@@ -111,6 +111,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             .map_err(failure::Error::from)?;
 
         Ok(UnsealTaskPrototype {
+            comm_d: sealed_sector.comm_d,
             porep_config: self.sector_store.proofs_config().porep_config(),
             source_path: self
                 .sector_store
@@ -123,6 +124,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             sector_id: sealed_sector.sector_id,
             piece_start_byte: get_piece_start_byte(&piece_lengths, piece.num_bytes),
             piece_len: piece.num_bytes,
+            seal_ticket: sealed_sector.seal_ticket.clone(),
         })
     }
 
@@ -143,7 +145,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
         let destination_sector_id = helpers::add_piece(
             &self.sector_store,
-            &mut self.state.staged,
+            &mut self.state,
             piece_bytes_amount,
             piece_key,
             piece_file,
@@ -162,6 +164,12 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         self.checkpoint().expects(FATAL_SNPSHT);
 
         Ok(to_seal)
+    }
+
+    // Set the ticket which should be used when sealing.
+    pub fn set_current_seal_ticket(&mut self, seal_ticket: SealTicket) {
+        self.state.current_seal_ticket = seal_ticket;
+        self.checkpoint().expects(FATAL_SNPSHT);
     }
 
     // Produces a vector containing metadata for all sealed sectors that this
@@ -245,6 +253,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         sector_id: SectorId,
         sector_access: String,
         sector_path: PathBuf,
+        ticket: SealTicket,
         result: Result<SealOutput>,
     ) {
         // scope exists to end the mutable borrow of self so that we can
@@ -262,8 +271,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                 .and_then(|output| {
                     let SealOutput {
                         comm_r,
-                        comm_r_star,
                         comm_d,
+                        p_aux,
                         proof,
                         comm_ps,
                         piece_inclusion_proofs,
@@ -296,12 +305,13 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         sector_id: staged_sector.sector_id,
                         sector_access,
                         pieces,
-                        comm_r_star,
+                        p_aux,
                         comm_r,
                         comm_d,
                         proof,
                         blake2b_checksum,
                         len,
+                        seal_ticket: ticket,
                     };
 
                     Ok(meta)
@@ -381,6 +391,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         Ok(SealTaskPrototype {
             piece_lens,
             porep_config: self.sector_store.proofs_config().porep_config(),
+            seal_ticket: self.state.current_seal_ticket.clone(),
             sealed_sector_access,
             sealed_sector_path,
             sector_id,

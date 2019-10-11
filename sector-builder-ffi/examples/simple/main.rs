@@ -416,7 +416,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_d,
                 prover_id,
             ),
-            "seal verification failed  for sector with id 124"
+            "seal verification failed for sector with id 124"
         );
     }
 

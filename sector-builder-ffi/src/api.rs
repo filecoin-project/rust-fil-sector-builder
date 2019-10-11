@@ -226,6 +226,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                     let snark_proof = meta.proof.clone();
 
                     let sector = responses::FFISealedSectorMetadata {
+                        seal_ticket: FFISealTicket {
+                            height: meta.seal_ticket.height,
+                            bytes: meta.seal_ticket.bytes,
+                        },
                         comm_d: meta.comm_d,
                         comm_r: meta.comm_r,
                         pieces_len: pieces.len(),

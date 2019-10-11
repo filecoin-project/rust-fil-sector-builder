@@ -8,7 +8,7 @@ use ffi_toolkit::free_c_str;
 use libc;
 use sector_builder::{SealedSectorHealth, SectorBuilderErr, SectorManagerErr};
 
-use crate::api::SectorBuilder;
+use crate::api::{FFISealTicket, SectorBuilder};
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]
@@ -295,13 +295,14 @@ pub struct FFIStagedSectorMetadata {
 pub struct FFISealedSectorMetadata {
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
+    pub health: FFISealedSectorHealth,
     pub pieces_len: libc::size_t,
     pub pieces_ptr: *const FFIPieceMetadata,
     pub proofs_len: libc::size_t,
     pub proofs_ptr: *const u8,
+    pub seal_ticket: FFISealTicket,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
-    pub health: FFISealedSectorHealth,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

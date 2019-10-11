@@ -20,8 +20,6 @@ jobs:
           command: paramcache
       - persist_to_workspace:
           root: "."
-          paths:
-            - paramcache-checksum.txt
       - save_parameter_cache
 
   cargo_fetch:

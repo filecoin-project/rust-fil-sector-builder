@@ -10,14 +10,13 @@ jobs:
       - configure_env
       - install_rust
       - run:
-          name: Install paramfetch from head of rust-fil-proofs master branch
+          name: Install paramcache from head of rust-fil-proofs master branch
           command: |
-            # install paramfetch
             cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
       - run:
           name: create paramfetch checksum
-          command: md5sum $(which paramfetch) | cut -d ' ' -f 1 >> paramfetch-checksum.txt
+          command: md5sum $(which paramcache) | cut -d ' ' -f 1 >> paramcache-checksum.txt
       - restore_parameter_cache
       - run:
           name: Generate Groth parameters and verifying keys
@@ -25,7 +24,7 @@ jobs:
       - persist_to_workspace:
           root: "."
           paths:
-            - paramfetch-checksum.txt
+            - paramcache-checksum.txt
       - save_parameter_cache
 
   cargo_fetch:
@@ -322,7 +321,7 @@ commands:
   restore_parameter_cache:
     steps:
       - restore_cache:
-          key: v1-proof-params-{{ checksum "paramfetch-checksum.txt" }}
+          key: v2-proof-params-{{ checksum "paramcache-checksum.txt" }}
           paths:
             - /tmp/filecoin-parameter-cache
   restore_rust_cache:
@@ -332,7 +331,7 @@ commands:
   save_parameter_cache:
     steps:
       - save_cache:
-          key: v1-proof-params-{{ checksum "paramfetch-checksum.txt" }}
+          key: v2-proof-params-{{ checksum "paramcache-checksum.txt" }}
           paths:
             - /tmp/filecoin-parameter-cache
   save_rust_cache:

@@ -58,8 +58,8 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
-    unsafe { kill_restart_recovery(sector_size).unwrap() };
     unsafe { sector_builder_lifecycle(sector_size).unwrap() };
+    unsafe { kill_restart_recovery(sector_size).unwrap() };
 }
 
 /// A test which simulates a sector builder being shutdown impolitely (SIGKILL).

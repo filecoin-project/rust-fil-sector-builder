@@ -18,8 +18,6 @@ jobs:
       - run:
           name: Generate Groth parameters and verifying keys
           command: paramcache
-      - persist_to_workspace:
-          root: "."
       - save_parameter_cache
 
   cargo_fetch:

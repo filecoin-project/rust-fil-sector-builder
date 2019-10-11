@@ -180,6 +180,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         cfg.sector_class,
         cfg.max_num_staged_sectors,
     );
+    defer!(sector_builder_ffi_destroy_sector_builder(ptr));
 
     // block until the sector has sealed
     poll_for_sector_sealing_status(

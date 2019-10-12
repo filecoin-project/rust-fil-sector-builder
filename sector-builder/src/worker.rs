@@ -6,6 +6,7 @@ use filecoin_proofs::error::ExpectWithBacktrace;
 use crate::error::Result;
 use crate::scheduler::SchedulerTask;
 use crate::{PoRepConfig, UnpaddedByteIndex, UnpaddedBytesAmount};
+use nix::unistd::ForkResult;
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
@@ -137,23 +138,45 @@ impl Worker {
                     piece_lens,
                     done_tx,
                 } => {
-                    let result = filecoin_proofs::seal(
-                        porep_config,
-                        &staged_sector_path,
-                        &sealed_sector_path,
-                        &prover_id,
-                        sector_id,
-                        &piece_lens,
-                    );
+                    let (mut inner_done_tx, mut inner_done_rx) = pipe_channel::channel();
 
-                    done_tx
-                        .send(SchedulerTask::HandleSealResult(
-                            sector_id,
-                            sealed_sector_access,
-                            sealed_sector_path,
-                            result,
-                        ))
-                        .expects(FATAL_SNDRLT);
+                    match nix::unistd::fork() {
+                        Ok(ForkResult::Parent { child, .. }) => {
+                            let result = inner_done_rx.recv().unwrap();
+
+                            // send SIGTERM to the child process
+                            nix::sys::signal::kill(child, nix::sys::signal::SIGTERM).unwrap();
+
+                            // wait for the child process to die
+                            nix::sys::wait::waitpid(child, None).unwrap();
+
+                            done_tx
+                                .send(SchedulerTask::HandleSealResult(
+                                    sector_id,
+                                    sealed_sector_access,
+                                    sealed_sector_path,
+                                    result,
+                                ))
+                                .expects(FATAL_SNDRLT);
+                        }
+                        Ok(ForkResult::Child) => {
+                            // make this thread a low priority
+                            unsafe { libc::nice(19) };
+
+                            let result = filecoin_proofs::seal(
+                                porep_config,
+                                &staged_sector_path,
+                                &sealed_sector_path,
+                                &prover_id,
+                                sector_id,
+                                &piece_lens,
+                            );
+
+                            // send the completion signal
+                            inner_done_tx.send(result).expect("failed to send");
+                        }
+                        Err(err) => panic!(err),
+                    }
                 }
                 WorkerTask::Unseal {
                     porep_config,

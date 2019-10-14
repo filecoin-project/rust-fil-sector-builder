@@ -88,9 +88,9 @@ impl<T> WorkerTask<T> {
     ) -> WorkerTask<T> {
         WorkerTask::GeneratePoSt {
             challenge_seed: proto.challenge_seed,
-            private_replicas: proto.private_replicas,
-            post_config: proto.post_config,
             done_tx,
+            post_config: proto.post_config,
+            private_replicas: proto.private_replicas,
         }
     }
 
@@ -98,25 +98,15 @@ impl<T> WorkerTask<T> {
         proto: SealTaskPrototype,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     ) -> WorkerTask<T> {
-        let SealTaskPrototype {
-            piece_lens,
-            porep_config,
-            seal_ticket,
-            sealed_sector_access,
-            sealed_sector_path,
-            sector_id,
-            staged_sector_path,
-        } = proto;
-
         WorkerTask::Seal {
-            piece_lens,
-            porep_config,
-            seal_ticket,
-            sealed_sector_access,
-            sealed_sector_path,
-            sector_id,
-            staged_sector_path,
             done_tx,
+            piece_lens: proto.piece_lens,
+            porep_config: proto.porep_config,
+            seal_ticket: proto.seal_ticket,
+            sealed_sector_access: proto.sealed_sector_access,
+            sealed_sector_path: proto.sealed_sector_path,
+            sector_id: proto.sector_id,
+            staged_sector_path: proto.staged_sector_path,
         }
     }
 
@@ -125,28 +115,17 @@ impl<T> WorkerTask<T> {
         caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     ) -> WorkerTask<T> {
-        let UnsealTaskPrototype {
-            comm_d,
-            destination_path,
-            piece_len,
-            piece_start_byte,
-            porep_config,
-            seal_ticket,
-            sector_id,
-            source_path,
-        } = proto;
-
         WorkerTask::Unseal {
             caller_done_tx,
-            comm_d,
-            destination_path,
-            piece_len,
-            piece_start_byte,
-            porep_config,
-            seal_ticket,
-            sector_id,
-            source_path,
+            comm_d: proto.comm_d,
+            destination_path: proto.destination_path,
             done_tx,
+            piece_len: proto.piece_len,
+            piece_start_byte: proto.piece_start_byte,
+            porep_config: proto.porep_config,
+            seal_ticket: proto.seal_ticket,
+            sector_id: proto.sector_id,
+            source_path: proto.source_path,
         }
     }
 }

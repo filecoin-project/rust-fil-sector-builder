@@ -432,7 +432,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         );
     }
 
-    // get sealed sector and verify the proof using the first ticket
+    // get sealed sector and verify the proof using the ticket we sealed with
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 

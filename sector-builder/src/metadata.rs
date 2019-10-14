@@ -59,7 +59,10 @@ impl PartialEq for SealStatus {
 
 #[derive(Clone, Serialize, Default, Deserialize, Debug, PartialEq)]
 pub struct SealTicket {
+    /// the height at which we chose the ticket
     pub height: u64,
+
+    /// bytes of the minimum ticket chosen from a block with given height
     pub bytes: [u8; 32],
 }
 

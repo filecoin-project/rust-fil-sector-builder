@@ -16,8 +16,11 @@ use crate::responses::{
 
 #[repr(C)]
 pub struct FFISealTicket {
-    height: u64,
-    bytes: [u8; 32],
+    /// the height at which we chose the ticket
+    pub height: u64,
+
+    /// bytes of the minimum ticket chosen from a block with given height
+    pub bytes: [u8; 32],
 }
 
 #[repr(C)]

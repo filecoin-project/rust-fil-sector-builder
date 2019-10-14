@@ -142,7 +142,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         piece_bytes_amount: u64,
         piece_file: impl std::io::Read,
         store_until: SecondsSinceEpoch,
-    ) -> Result<(SectorId, Vec<SealTaskPrototype>)> {
+    ) -> Result<SectorId> {
         let destination_sector_id = helpers::add_piece(
             &self.sector_store,
             &mut self.state,
@@ -152,24 +152,27 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             store_until,
         )?;
 
-        let to_seal = self.check_and_schedule(false)?;
+        self.check_and_schedule(false);
         self.checkpoint().expects(FATAL_SNPSHT);
 
-        Ok((destination_sector_id, to_seal))
+        Ok(destination_sector_id)
     }
 
     // For demo purposes. Schedules sealing of all staged sectors.
-    pub fn seal_all_staged_sectors(&mut self) -> Result<Vec<SealTaskPrototype>> {
-        let to_seal = self.check_and_schedule(true)?;
+    pub fn mark_all_sectors_for_sealing(&mut self) {
+        self.check_and_schedule(true);
         self.checkpoint().expects(FATAL_SNPSHT);
-
-        Ok(to_seal)
     }
 
     // Set the ticket which should be used when sealing.
     pub fn set_current_seal_ticket(&mut self, seal_ticket: SealTicket) {
         self.state.current_seal_ticket = seal_ticket;
         self.checkpoint().expects(FATAL_SNPSHT);
+    }
+
+    // Get the current ticket.
+    pub fn get_current_seal_ticket(&self) -> &SealTicket {
+        &self.state.current_seal_ticket
     }
 
     // Produces a vector containing metadata for all sealed sectors that this
@@ -207,25 +210,82 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             .collect()
     }
 
+    // Commits a sector to a given ticket and flips its status to Sealing.
+    pub fn commit_sector_to_ticket(&mut self, sector_id: &SectorId, seal_ticket: &SealTicket) {
+        for (k, mut v) in &mut self.state.staged.sectors {
+            if sector_id == k {
+                v.seal_status = SealStatus::Sealing(seal_ticket.clone());
+                self.checkpoint().expects(FATAL_SNPSHT);
+
+                return;
+            }
+        }
+    }
+
+    // Create a SealTaskPrototype for each staged sector matching the predicate.
+    // If a ticket is already associated with the staged sector, use it to
+    // create the proto. Otherwise use the current ticket.
+    pub fn create_seal_task_protos<P: FnMut(&StagedSectorMetadata) -> bool>(
+        &mut self,
+        predicate: P,
+    ) -> Result<Vec<SealTaskPrototype>> {
+        let mut protos: Vec<SealTaskPrototype> = Default::default();
+
+        for staged_sector in self.get_staged_sectors_filtered(predicate) {
+            // Provision a new sealed sector access through the manager.
+            let sealed_sector_access = self
+                .sector_store
+                .manager()
+                .new_sealed_sector_access(staged_sector.sector_id)
+                .map_err(failure::Error::from)?;
+
+            let sealed_sector_path = self
+                .sector_store
+                .manager()
+                .sealed_sector_path(&sealed_sector_access);
+
+            let staged_sector_path = self
+                .sector_store
+                .manager()
+                .staged_sector_path(&staged_sector.sector_access);
+
+            let piece_lens = staged_sector
+                .pieces
+                .iter()
+                .map(|p| p.num_bytes)
+                .collect::<Vec<UnpaddedBytesAmount>>();
+
+            let seal_ticket = match staged_sector.seal_status {
+                SealStatus::Sealing(ref ticket) => ticket.clone(),
+                _ => self.state.current_seal_ticket.clone(),
+            };
+
+            protos.push(SealTaskPrototype {
+                piece_lens,
+                porep_config: self.sector_store.proofs_config().porep_config(),
+                seal_ticket,
+                sealed_sector_access,
+                sealed_sector_path,
+                sector_id: staged_sector.sector_id,
+                staged_sector_path,
+            })
+        }
+
+        Ok(protos)
+    }
+
     // Produces a vector containing metadata for all staged sectors that this
     // SectorBuilder knows about. If a sealing status is provided, return only
     // the staged sector metadata with matching status.
-    pub fn get_staged_sector_filtered(
+    pub fn get_staged_sectors_filtered<P: FnMut(&StagedSectorMetadata) -> bool>(
         &self,
-        target_status: Option<SealStatus>,
-    ) -> Vec<StagedSectorMetadata> {
+        mut predicate: P,
+    ) -> Vec<&StagedSectorMetadata> {
         self.state
             .staged
             .sectors
             .values()
-            .filter(|meta| {
-                if let Some(ref s) = target_status {
-                    s == &meta.seal_status
-                } else {
-                    true
-                }
-            })
-            .cloned()
+            .filter(|x| predicate(*x))
             .collect()
     }
 
@@ -328,75 +388,24 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         self.checkpoint().expects(FATAL_SNPSHT);
     }
 
-    // Returns a vector of SealTaskPrototype, each representing a sector which
-    // is to be sealed.
-    fn check_and_schedule(
-        &mut self,
-        seal_all_staged_sectors: bool,
-    ) -> Result<Vec<SealTaskPrototype>> {
+    // If any sector is full enough to seal, mark it as such.
+    fn check_and_schedule(&mut self, seal_all_staged_sectors: bool) {
         let staged_state = &mut self.state.staged;
 
-        let to_be_sealed = helpers::get_sectors_ready_for_sealing(
+        let to_be_sealed: HashSet<SectorId> = helpers::get_sectors_ready_for_sealing(
             staged_state,
             self.max_user_bytes_per_staged_sector,
             self.max_num_staged_sectors,
             seal_all_staged_sectors,
-        );
+        )
+        .into_iter()
+        .collect();
 
-        let mut to_seal: Vec<SealTaskPrototype> = Default::default();
-        for sector_id in to_be_sealed {
-            to_seal.push(self.create_seal_task_proto(sector_id)?);
+        for (_, mut v) in &mut staged_state.sectors {
+            if to_be_sealed.contains(&v.sector_id) {
+                v.seal_status = SealStatus::ReadyForSealing;
+            }
         }
-
-        Ok(to_seal)
-    }
-
-    // creates a seal task prototype for the provided sector id and modifies
-    // metadata to reflect the fact that it's about to be sealed
-    pub fn create_seal_task_proto(&mut self, sector_id: SectorId) -> Result<SealTaskPrototype> {
-        let staged_state = &mut self.state.staged;
-
-        let mut staged_sector = staged_state
-            .sectors
-            .get_mut(&sector_id)
-            .ok_or_else(|| err_unrecov(format!("missing sector id={:?}", sector_id)))?;
-
-        // Provision a new sealed sector access through the manager.
-        let sealed_sector_access = self
-            .sector_store
-            .manager()
-            .new_sealed_sector_access(staged_sector.sector_id)
-            .map_err(failure::Error::from)?;
-
-        let sealed_sector_path = self
-            .sector_store
-            .manager()
-            .sealed_sector_path(&sealed_sector_access);
-
-        let staged_sector_path = self
-            .sector_store
-            .manager()
-            .staged_sector_path(&staged_sector.sector_access);
-
-        let piece_lens = staged_sector
-            .pieces
-            .iter()
-            .map(|p| p.num_bytes)
-            .collect::<Vec<UnpaddedBytesAmount>>();
-
-        // mutate staged sector state such that we don't try to write any
-        // more pieces to it
-        staged_sector.seal_status = SealStatus::Sealing;
-
-        Ok(SealTaskPrototype {
-            piece_lens,
-            porep_config: self.sector_store.proofs_config().porep_config(),
-            seal_ticket: self.state.current_seal_ticket.clone(),
-            sealed_sector_access,
-            sealed_sector_path,
-            sector_id,
-            staged_sector_path,
-        })
     }
 
     // Create and persist metadata snapshot.

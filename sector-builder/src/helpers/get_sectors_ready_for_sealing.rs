@@ -45,6 +45,7 @@ mod tests {
 
     use crate::metadata::{PieceMetadata, StagedSectorMetadata};
     use crate::state::StagedState;
+    use crate::SealTicket;
     use storage_proofs::sector::SectorId;
 
     fn make_meta(
@@ -56,7 +57,10 @@ mod tests {
         let seal_status = if accepting_data {
             SealStatus::Pending
         } else {
-            SealStatus::Sealing
+            SealStatus::Sealing(SealTicket {
+                height: 1,
+                bytes: [0u8; 32],
+            })
         };
 
         m.insert(

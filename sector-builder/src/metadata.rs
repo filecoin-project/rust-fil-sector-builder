@@ -35,12 +35,26 @@ pub struct PieceMetadata {
     pub piece_inclusion_proof: Option<Vec<u8>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum SealStatus {
     Failed(String),
     Pending,
     Sealed(Box<SealedSectorMetadata>),
-    Sealing,
+    ReadyForSealing,
+    Sealing(SealTicket),
+}
+
+impl PartialEq for SealStatus {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (SealStatus::Failed(_), SealStatus::Failed(_)) => true,
+            (SealStatus::Pending, SealStatus::Pending) => true,
+            (SealStatus::Sealed(_), SealStatus::Sealed(_)) => true,
+            (SealStatus::ReadyForSealing, SealStatus::ReadyForSealing) => true,
+            (SealStatus::Sealing(_), SealStatus::Sealing(_)) => true,
+            (_, _) => false,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Default, Deserialize, Debug, PartialEq)]

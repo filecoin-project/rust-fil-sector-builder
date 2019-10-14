@@ -172,7 +172,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                     mem::forget(meta.proof);
                     mem::forget(pieces);
                 }
-                SealStatus::Sealing => {
+                SealStatus::ReadyForSealing => {
+                    response.seal_status_code = FFISealStatus::Sealing;
+                }
+                SealStatus::Sealing(_) => {
                     response.seal_status_code = FFISealStatus::Sealing;
                 }
                 SealStatus::Pending => {
@@ -298,7 +301,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
                             sector.seal_status_code = FFISealStatus::Failed;
                             sector.seal_error_msg = rust_str_to_c_str(s.clone());
                         }
-                        SealStatus::Sealing => {
+                        SealStatus::ReadyForSealing => {
+                            sector.seal_status_code = FFISealStatus::Sealing;
+                        }
+                        SealStatus::Sealing(_) => {
                             sector.seal_status_code = FFISealStatus::Sealing;
                         }
                         SealStatus::Pending => {

@@ -29,6 +29,7 @@ pub struct UnsealTaskPrototype {
     pub(crate) source_path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
 pub struct SealTaskPrototype {
     pub(crate) piece_lens: Vec<UnpaddedBytesAmount>,
     pub(crate) porep_config: PoRepConfig,

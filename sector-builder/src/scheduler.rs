@@ -148,7 +148,7 @@ impl Scheduler {
                         }) {
                             Ok(protos) => {
                                 for p in protos {
-                                    m.commit_sector_to_ticket(&p.sector_id, &p.seal_ticket);
+                                    m.commit_sector_to_ticket(p.sector_id, &p.seal_ticket);
 
                                     worker_tx
                                         .send(WorkerTask::from_seal_proto(
@@ -173,7 +173,7 @@ impl Scheduler {
                         }) {
                             Ok(protos) => {
                                 for p in protos {
-                                    m.commit_sector_to_ticket(&p.sector_id, &p.seal_ticket);
+                                    m.commit_sector_to_ticket(p.sector_id, &p.seal_ticket);
 
                                     worker_tx
                                         .send(WorkerTask::from_seal_proto(

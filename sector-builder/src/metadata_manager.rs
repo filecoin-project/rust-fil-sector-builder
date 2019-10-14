@@ -69,7 +69,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         }
 
         GeneratePoStTaskPrototype {
-            challenge_seed: challenge_seed.clone(),
+            challenge_seed: *challenge_seed,
             private_replicas: replicas,
             post_config: self.sector_store.proofs_config().post_config(),
         }
@@ -211,9 +211,9 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     }
 
     // Commits a sector to a given ticket and flips its status to Sealing.
-    pub fn commit_sector_to_ticket(&mut self, sector_id: &SectorId, seal_ticket: &SealTicket) {
+    pub fn commit_sector_to_ticket(&mut self, sector_id: SectorId, seal_ticket: &SealTicket) {
         for (k, mut v) in &mut self.state.staged.sectors {
-            if sector_id == k {
+            if sector_id == *k {
                 v.seal_status = SealStatus::Sealing(seal_ticket.clone());
                 self.checkpoint().expects(FATAL_SNPSHT);
 
@@ -401,7 +401,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         .into_iter()
         .collect();
 
-        for (_, mut v) in &mut staged_state.sectors {
+        for mut v in &mut staged_state.sectors.values_mut() {
             if to_be_sealed.contains(&v.sector_id) {
                 v.seal_status = SealStatus::ReadyForSealing;
             }

@@ -10,7 +10,7 @@ use storage_proofs::sector::SectorId;
 use crate::error::Result;
 use crate::kv_store::KeyValueStore;
 use crate::state::SectorBuilderState;
-use crate::worker::{SealTaskPrototype, UnsealTaskPrototype};
+use crate::worker::{GeneratePoStTaskPrototype, SealTaskPrototype, UnsealTaskPrototype};
 use crate::GetSealedSectorResult::WithHealth;
 use crate::{
     err_piecenotfound, err_unrecov, GetSealedSectorResult, PieceMetadata, SealStatus,
@@ -36,12 +36,12 @@ pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
 }
 
 impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
-    pub fn generate_post(
+    pub fn create_generate_post_task_proto(
         &self,
         comm_rs: &[[u8; 32]],
         challenge_seed: &[u8; 32],
         faults: Vec<SectorId>,
-    ) -> Result<Vec<u8>> {
+    ) -> GeneratePoStTaskPrototype {
         let fault_set: HashSet<SectorId> = faults.into_iter().collect();
 
         let comm_rs_set: HashSet<&[u8; 32]> = comm_rs.iter().collect();
@@ -68,11 +68,11 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             }
         }
 
-        filecoin_proofs::generate_post(
-            self.sector_store.proofs_config().post_config(),
-            challenge_seed,
-            &replicas,
-        )
+        GeneratePoStTaskPrototype {
+            challenge_seed: challenge_seed.clone(),
+            private_replicas: replicas,
+            post_config: self.sector_store.proofs_config().post_config(),
+        }
     }
 
     // Creates a task prototype for retrieving (unsealing) a piece from a

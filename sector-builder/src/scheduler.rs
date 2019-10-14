@@ -210,7 +210,10 @@ impl Scheduler {
                             .expects(FATAL_NOSEND);
                     }
                     SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
-                        tx.send(m.generate_post(&comm_rs, &chg_seed, faults))
+                        let proto = m.create_generate_post_task_proto(&comm_rs, &chg_seed, faults);
+
+                        worker_tx
+                            .send(WorkerTask::from_generate_post_proto(proto, tx.clone()))
                             .expects(FATAL_NOSEND);
                     }
                     SchedulerTask::Shutdown => break,

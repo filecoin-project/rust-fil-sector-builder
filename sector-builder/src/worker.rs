@@ -6,6 +6,8 @@ use filecoin_proofs::error::ExpectWithBacktrace;
 use crate::error::Result;
 use crate::scheduler::SchedulerTask;
 use crate::{PoRepConfig, SealTicket, UnpaddedByteIndex, UnpaddedBytesAmount};
+use filecoin_proofs::{PoStConfig, PrivateReplicaInfo};
+use std::collections::btree_map::BTreeMap;
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
@@ -30,6 +32,13 @@ pub struct UnsealTaskPrototype {
 }
 
 #[derive(Debug, Clone)]
+pub struct GeneratePoStTaskPrototype {
+    pub(crate) challenge_seed: [u8; 32],
+    pub(crate) private_replicas: BTreeMap<SectorId, PrivateReplicaInfo>,
+    pub(crate) post_config: PoStConfig,
+}
+
+#[derive(Debug, Clone)]
 pub struct SealTaskPrototype {
     pub(crate) piece_lens: Vec<UnpaddedBytesAmount>,
     pub(crate) porep_config: PoRepConfig,
@@ -41,6 +50,12 @@ pub struct SealTaskPrototype {
 }
 
 pub enum WorkerTask<T> {
+    GeneratePoSt {
+        challenge_seed: [u8; 32],
+        private_replicas: BTreeMap<SectorId, PrivateReplicaInfo>,
+        post_config: PoStConfig,
+        done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
+    },
     Seal {
         piece_lens: Vec<UnpaddedBytesAmount>,
         porep_config: PoRepConfig,
@@ -67,6 +82,18 @@ pub enum WorkerTask<T> {
 }
 
 impl<T> WorkerTask<T> {
+    pub fn from_generate_post_proto(
+        proto: GeneratePoStTaskPrototype,
+        done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
+    ) -> WorkerTask<T> {
+        WorkerTask::GeneratePoSt {
+            challenge_seed: proto.challenge_seed,
+            private_replicas: proto.private_replicas,
+            post_config: proto.post_config,
+            done_tx,
+        }
+    }
+
     pub fn from_seal_proto(
         proto: SealTaskPrototype,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
@@ -141,6 +168,20 @@ impl Worker {
 
             // Dispatch to the appropriate task-handler.
             match task {
+                WorkerTask::GeneratePoSt {
+                    challenge_seed,
+                    private_replicas,
+                    post_config,
+                    done_tx,
+                } => {
+                    done_tx
+                        .send(filecoin_proofs::generate_post(
+                            post_config,
+                            &challenge_seed,
+                            &private_replicas,
+                        ))
+                        .expects(FATAL_SNDRLT);
+                }
                 WorkerTask::Seal {
                     porep_config,
                     sector_id,

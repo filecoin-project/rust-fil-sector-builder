@@ -18,10 +18,11 @@ use crate::scheduler::{PerformHealthCheck, Scheduler, SchedulerTask};
 use crate::state::SectorBuilderState;
 use crate::worker::*;
 use crate::SectorStore;
+use std::io::Read;
 
 const FATAL_NOLOAD: &str = "could not load snapshot";
 
-pub struct SectorBuilder<T> {
+pub struct SectorBuilder<T: Read + Send> {
     // Prevents FFI consumers from queueing behind long-running seal operations.
     worker_tx: mpsc::Sender<WorkerTask>,
 
@@ -212,7 +213,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
     }
 }
 
-impl<T> Drop for SectorBuilder<T> {
+impl<T: Read + Send> Drop for SectorBuilder<T> {
     fn drop(&mut self) {
         // Shut down main worker and sealers, too.
         let _ = self

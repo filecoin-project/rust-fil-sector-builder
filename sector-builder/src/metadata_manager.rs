@@ -19,6 +19,7 @@ use crate::{
 };
 use crate::{helpers, SealTicket};
 use helpers::SnapshotKey;
+use std::io::Read;
 
 const FATAL_SNPSHT: &str = "could not snapshot";
 
@@ -172,11 +173,11 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
     // Write the piece to storage, obtaining the sector id with which the
     // piece-bytes are now associated and a vector of SealTaskPrototypes.
-    pub fn add_piece(
+    pub fn add_piece<U: Read>(
         &mut self,
         piece_key: String,
         piece_bytes_amount: u64,
-        piece_file: impl std::io::Read,
+        piece_file: U,
         store_until: SecondsSinceEpoch,
     ) -> Result<SectorId> {
         let destination_sector_id = helpers::add_piece(

@@ -15,6 +15,7 @@ use crate::{
     GetSealedSectorResult, SealTicket, SealedSectorMetadata, SecondsSinceEpoch,
     SectorMetadataManager, UnpaddedBytesAmount,
 };
+use std::io::Read;
 
 const FATAL_NORECV: &str = "could not receive task";
 const FATAL_NOSEND: &str = "could not send";
@@ -37,7 +38,7 @@ pub struct SealResult {
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum SchedulerTask<T> {
+pub enum SchedulerTask<T: Read + Send> {
     AddPiece(
         String,
         u64,
@@ -82,6 +83,222 @@ pub enum SchedulerTask<T> {
     Shutdown,
 }
 
+struct TaskHandler<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> {
+    m: SectorMetadataManager<T, U>,
+    scheduler_tx: mpsc::SyncSender<SchedulerTask<V>>,
+    worker_tx: mpsc::Sender<WorkerTask>,
+}
+
+impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> TaskHandler<T, U, V> {
+    fn handle(&mut self, task: SchedulerTask<V>) -> bool {
+        match task {
+            SchedulerTask::AddPiece(key, amt, file, store_until, tx) => {
+                match self.m.add_piece(key, amt, file, store_until) {
+                    Ok(sector_id) => {
+                        tx.send(Ok(sector_id)).expects(FATAL_NOSEND);
+                    }
+                    Err(err) => {
+                        tx.send(Err(err)).expects(FATAL_NOSEND);
+                    }
+                }
+
+                true
+            }
+            SchedulerTask::GetSealStatus(sector_id, tx) => {
+                tx.send(self.m.get_seal_status(sector_id))
+                    .expects(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::RetrievePiece(piece_key, tx) => {
+                match self.m.create_retrieve_piece_task_proto(piece_key) {
+                    Ok(proto) => {
+                        let scheduler_tx_c = self.scheduler_tx.clone();
+
+                        self.worker_tx
+                            .send(WorkerTask::from_unseal_proto(
+                                proto,
+                                Box::new(move |output| {
+                                    scheduler_tx_c
+                                        .send(SchedulerTask::HandleRetrievePieceResult(output, tx))
+                                        .expects(FATAL_NOSEND)
+                                }),
+                            ))
+                            .expects(FATAL_NOSEND);
+                    }
+                    Err(err) => {
+                        tx.send(Err(err)).expects(FATAL_NOSEND);
+                    }
+                }
+
+                true
+            }
+            SchedulerTask::GetSealedSectors(check_health, tx) => {
+                tx.send(self.m.get_sealed_sectors_filtered(check_health.0, |_| true))
+                    .expects(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::GetStagedSectors(tx) => {
+                tx.send(Ok(self
+                    .m
+                    .get_staged_sectors_filtered(|_| true)
+                    .into_iter()
+                    .cloned()
+                    .collect()))
+                    .expect(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::SealAllStagedSectors(seal_ticket, tx) => {
+                self.m.mark_all_sectors_for_sealing();
+
+                let r_protos = self
+                    .m
+                    .create_seal_task_protos(seal_ticket, |x| x.seal_status.is_ready_for_sealing());
+
+                match r_protos {
+                    Ok(protos) => {
+                        for p in &protos {
+                            self.m
+                                .commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
+                        }
+
+                        let scheduler_tx_c = self.scheduler_tx.clone();
+
+                        self.worker_tx
+                            .send(WorkerTask::from_seal_protos(
+                                protos,
+                                Box::new(move |output| {
+                                    scheduler_tx_c
+                                        .send(OnSealMultipleComplete {
+                                            output,
+                                            caller_done_tx: tx,
+                                        })
+                                        .expects(FATAL_NOSEND)
+                                }),
+                            ))
+                            .expects(FATAL_NOSEND);
+                    }
+                    Err(err) => {
+                        tx.send(Err(err)).expects(FATAL_NOSEND);
+                    }
+                }
+
+                true
+            }
+            SchedulerTask::ResumeSealSector(sector_id, tx) => {
+                let r_protos = self.m.create_resume_seal_task_protos(|x| {
+                    x.seal_status.is_paused() && x.sector_id == sector_id
+                });
+
+                match r_protos {
+                    Ok(protos) => {
+                        for p in &protos {
+                            self.m
+                                .commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
+                        }
+
+                        let scheduler_tx_c = self.scheduler_tx.clone();
+
+                        self.worker_tx
+                            .send(WorkerTask::from_seal_protos(
+                                protos,
+                                Box::new(move |output| {
+                                    scheduler_tx_c
+                                        .send(OnSealMultipleComplete {
+                                            output,
+                                            caller_done_tx: tx,
+                                        })
+                                        .expects(FATAL_NOSEND)
+                                }),
+                            ))
+                            .expects(FATAL_NOSEND);
+                    }
+                    Err(err) => {
+                        tx.send(Err(err)).expects(FATAL_NOSEND);
+                    }
+                }
+
+                true
+            }
+            SchedulerTask::SealSector(sector_id, seal_ticket, tx) => {
+                self.m.mark_all_sectors_for_sealing();
+
+                let r_protos = self.m.create_seal_task_protos(seal_ticket, |x| {
+                    x.sector_id == sector_id && x.seal_status.is_ready_for_sealing()
+                });
+
+                match r_protos {
+                    Ok(protos) => {
+                        for p in &protos {
+                            self.m
+                                .commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
+                        }
+
+                        let scheduler_tx_c = self.scheduler_tx.clone();
+
+                        self.worker_tx
+                            .send(WorkerTask::from_seal_protos(
+                                protos,
+                                Box::new(move |output| {
+                                    scheduler_tx_c
+                                        .send(OnSealMultipleComplete {
+                                            output,
+                                            caller_done_tx: tx,
+                                        })
+                                        .expects(FATAL_NOSEND)
+                                }),
+                            ))
+                            .expects(FATAL_NOSEND);
+                    }
+                    Err(err) => {
+                        tx.send(Err(err)).expects(FATAL_NOSEND);
+                    }
+                }
+
+                true
+            }
+            SchedulerTask::OnSealMultipleComplete {
+                output,
+                caller_done_tx,
+            } => {
+                let r: Result<Vec<SealedSectorMetadata>> = output
+                    .into_iter()
+                    .map(|o| self.m.handle_seal_result(o))
+                    .collect();
+
+                caller_done_tx.send(r).expects(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::HandleRetrievePieceResult(result, tx) => {
+                tx.send(self.m.read_unsealed_bytes_from(result))
+                    .expects(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
+                let proto = self
+                    .m
+                    .create_generate_post_task_proto(&comm_rs, &chg_seed, faults);
+
+                let tx_c = tx.clone();
+
+                self.worker_tx
+                    .send(WorkerTask::from_generate_post_proto(
+                        proto,
+                        Box::new(move |r| tx_c.send(r).expects(FATAL_NOSEND)),
+                    ))
+                    .expects(FATAL_NOSEND);
+
+                true
+            }
+            SchedulerTask::Shutdown => false,
+        }
+    }
+}
+
 impl Scheduler {
     #[allow(clippy::too_many_arguments)]
     pub fn start<
@@ -92,191 +309,18 @@ impl Scheduler {
         scheduler_tx: mpsc::SyncSender<SchedulerTask<U>>,
         scheduler_rx: mpsc::Receiver<SchedulerTask<U>>,
         worker_tx: mpsc::Sender<WorkerTask>,
-        mut m: SectorMetadataManager<T, S>,
+        m: SectorMetadataManager<T, S>,
     ) -> Result<Scheduler> {
-        let thread = thread::spawn(move || {
-            loop {
-                let task = scheduler_rx.recv().expects(FATAL_NORECV);
+        let mut handler = TaskHandler {
+            m,
+            scheduler_tx,
+            worker_tx: worker_tx.clone(),
+        };
 
-                // Dispatch to the appropriate task-handler.
-                match task {
-                    SchedulerTask::AddPiece(key, amt, file, store_until, tx) => {
-                        match m.add_piece(key, amt, file, store_until) {
-                            Ok(sector_id) => {
-                                tx.send(Ok(sector_id)).expects(FATAL_NOSEND);
-                            }
-                            Err(err) => {
-                                tx.send(Err(err)).expects(FATAL_NOSEND);
-                            }
-                        }
-                    }
-                    SchedulerTask::GetSealStatus(sector_id, tx) => {
-                        tx.send(m.get_seal_status(sector_id)).expects(FATAL_NOSEND);
-                    }
-                    SchedulerTask::RetrievePiece(piece_key, tx) => {
-                        match m.create_retrieve_piece_task_proto(piece_key) {
-                            Ok(proto) => {
-                                let scheduler_tx_c = scheduler_tx.clone();
-
-                                worker_tx
-                                    .send(WorkerTask::from_unseal_proto(
-                                        proto,
-                                        Box::new(move |output| {
-                                            scheduler_tx_c
-                                                .send(SchedulerTask::HandleRetrievePieceResult(
-                                                    output, tx,
-                                                ))
-                                                .expects(FATAL_NOSEND)
-                                        }),
-                                    ))
-                                    .expects(FATAL_NOSEND);
-                            }
-                            Err(err) => {
-                                tx.send(Err(err)).expects(FATAL_NOSEND);
-                            }
-                        }
-                    }
-                    SchedulerTask::GetSealedSectors(check_health, tx) => {
-                        tx.send(m.get_sealed_sectors_filtered(check_health.0, |_| true))
-                            .expects(FATAL_NOSEND);
-                    }
-                    SchedulerTask::GetStagedSectors(tx) => {
-                        tx.send(Ok(m
-                            .get_staged_sectors_filtered(|_| true)
-                            .into_iter()
-                            .cloned()
-                            .collect()))
-                            .expect(FATAL_NOSEND);
-                    }
-                    SchedulerTask::SealAllStagedSectors(seal_ticket, tx) => {
-                        m.mark_all_sectors_for_sealing();
-
-                        let r_protos = m.create_seal_task_protos(seal_ticket, |x| {
-                            x.seal_status.is_ready_for_sealing()
-                        });
-
-                        match r_protos {
-                            Ok(protos) => {
-                                for p in &protos {
-                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
-                                }
-
-                                let scheduler_tx_c = scheduler_tx.clone();
-
-                                worker_tx
-                                    .send(WorkerTask::from_seal_protos(
-                                        protos,
-                                        Box::new(move |output| {
-                                            scheduler_tx_c
-                                                .send(OnSealMultipleComplete {
-                                                    output,
-                                                    caller_done_tx: tx,
-                                                })
-                                                .expects(FATAL_NOSEND)
-                                        }),
-                                    ))
-                                    .expects(FATAL_NOSEND);
-                            }
-                            Err(err) => {
-                                tx.send(Err(err)).expects(FATAL_NOSEND);
-                            }
-                        }
-                    }
-                    SchedulerTask::ResumeSealSector(sector_id, tx) => {
-                        let r_protos = m.create_resume_seal_task_protos(|x| {
-                            x.seal_status.is_paused() && x.sector_id == sector_id
-                        });
-
-                        match r_protos {
-                            Ok(protos) => {
-                                for p in &protos {
-                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
-                                }
-
-                                let scheduler_tx_c = scheduler_tx.clone();
-
-                                worker_tx
-                                    .send(WorkerTask::from_seal_protos(
-                                        protos,
-                                        Box::new(move |output| {
-                                            scheduler_tx_c
-                                                .send(OnSealMultipleComplete {
-                                                    output,
-                                                    caller_done_tx: tx,
-                                                })
-                                                .expects(FATAL_NOSEND)
-                                        }),
-                                    ))
-                                    .expects(FATAL_NOSEND);
-                            }
-                            Err(err) => {
-                                tx.send(Err(err)).expects(FATAL_NOSEND);
-                            }
-                        }
-                    }
-                    SchedulerTask::SealSector(sector_id, seal_ticket, tx) => {
-                        m.mark_all_sectors_for_sealing();
-
-                        let r_protos = m.create_seal_task_protos(seal_ticket, |x| {
-                            x.sector_id == sector_id && x.seal_status.is_ready_for_sealing()
-                        });
-
-                        match r_protos {
-                            Ok(protos) => {
-                                for p in &protos {
-                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
-                                }
-
-                                let scheduler_tx_c = scheduler_tx.clone();
-
-                                worker_tx
-                                    .send(WorkerTask::from_seal_protos(
-                                        protos,
-                                        Box::new(move |output| {
-                                            scheduler_tx_c
-                                                .send(OnSealMultipleComplete {
-                                                    output,
-                                                    caller_done_tx: tx,
-                                                })
-                                                .expects(FATAL_NOSEND)
-                                        }),
-                                    ))
-                                    .expects(FATAL_NOSEND);
-                            }
-                            Err(err) => {
-                                tx.send(Err(err)).expects(FATAL_NOSEND);
-                            }
-                        }
-                    }
-                    SchedulerTask::OnSealMultipleComplete {
-                        output,
-                        caller_done_tx,
-                    } => {
-                        let r: Result<Vec<SealedSectorMetadata>> = output
-                            .into_iter()
-                            .map(|o| m.handle_seal_result(o))
-                            .collect();
-
-                        caller_done_tx.send(r).expects(FATAL_NOSEND);
-                    }
-                    SchedulerTask::HandleRetrievePieceResult(result, tx) => {
-                        tx.send(m.read_unsealed_bytes_from(result))
-                            .expects(FATAL_NOSEND);
-                    }
-                    SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
-                        let proto = m.create_generate_post_task_proto(&comm_rs, &chg_seed, faults);
-
-                        let tx_c = tx.clone();
-
-                        worker_tx
-                            .send(WorkerTask::from_generate_post_proto(
-                                proto,
-                                Box::new(move |r| tx_c.send(r).expects(FATAL_NOSEND)),
-                            ))
-                            .expects(FATAL_NOSEND);
-                    }
-                    SchedulerTask::Shutdown => break,
-                }
+        let thread = thread::spawn(move || loop {
+            let task = scheduler_rx.recv().expects(FATAL_NORECV);
+            if !handler.handle(task) {
+                break;
             }
         });
 

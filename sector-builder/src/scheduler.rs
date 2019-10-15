@@ -10,7 +10,7 @@ use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, StagedSectorMetadata};
 use crate::scheduler::SchedulerTask::OnSealMultipleComplete;
 use crate::store::SectorStore;
-use crate::worker::WorkerTask;
+use crate::worker::{SealTaskPrototype, WorkerTask};
 use crate::{
     GetSealedSectorResult, SealTicket, SealedSectorMetadata, SecondsSinceEpoch,
     SectorMetadataManager, UnpaddedBytesAmount,
@@ -92,13 +92,13 @@ impl<T: Read + Send> SchedulerTask<T> {
     }
 }
 
-struct Handler<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> {
+struct TaskHandler<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> {
     m: SectorMetadataManager<T, U>,
     scheduler_tx: mpsc::SyncSender<SchedulerTask<V>>,
     worker_tx: mpsc::Sender<WorkerTask>,
 }
 
-impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> Handler<T, U, V> {
+impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> TaskHandler<T, U, V> {
     // the handle method processes a single scheduler task, returning false when
     // it has processed the shutdown task
     fn handle(&mut self, task: SchedulerTask<V>) -> bool {
@@ -155,17 +155,45 @@ impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> Handle
             }
             SchedulerTask::SealAllStagedSectors(seal_ticket, tx) => {
                 self.m.mark_all_sectors_for_sealing();
-                self.seal_matching(tx, seal_ticket, |x| x.seal_status.is_ready_for_sealing());
+                let p = |x: &StagedSectorMetadata| x.seal_status.is_ready_for_sealing();
+                let f = |_: &[SealTaskPrototype]| None;
+                self.seal_matching(tx, seal_ticket, p, f);
             }
             SchedulerTask::ResumeSealSector(sector_id, tx) => {
-                self.seal_matching(tx, Default::default(), |x| {
+                let p = |x: &StagedSectorMetadata| {
                     x.seal_status.is_paused() && x.sector_id == sector_id
-                });
+                };
+
+                let f = |xs: &[SealTaskPrototype]| {
+                    if xs.len() != 1 {
+                        return Some(format_err!(
+                            "found no staged sector with id={} in Paused state (was it ever started?)",
+                            sector_id
+                        ));
+                    }
+
+                    return None;
+                };
+
+                self.seal_matching(tx, Default::default(), p, f);
             }
             SchedulerTask::SealSector(sector_id, seal_ticket, tx) => {
-                self.seal_matching(tx, seal_ticket, |x| {
+                let p = |x: &StagedSectorMetadata| {
                     x.seal_status.is_ready_for_sealing() && x.sector_id == sector_id
-                });
+                };
+
+                let f = |xs: &[SealTaskPrototype]| {
+                    if xs.len() != 1 {
+                        return Some(format_err!(
+                            "found no staged sector with id={} in ReadyForSealing state (is it already sealing?)",
+                            sector_id
+                        ));
+                    }
+
+                    return None;
+                };
+
+                self.seal_matching(tx, seal_ticket, p, f);
             }
             SchedulerTask::OnSealMultipleComplete(output, done_tx) => {
                 let r: Result<Vec<SealedSectorMetadata>> = output
@@ -199,16 +227,24 @@ impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> Handle
         should_continue
     }
 
-    fn seal_matching<P: FnMut(&StagedSectorMetadata) -> bool>(
+    fn seal_matching<
+        P: FnMut(&StagedSectorMetadata) -> bool,
+        F: FnOnce(&[SealTaskPrototype]) -> Option<failure::Error>,
+    >(
         &mut self,
         done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
         seal_ticket: SealTicket,
         predicate: P,
+        pre_seal_err_check: F,
     ) {
         let r_protos = self.m.create_seal_task_protos(seal_ticket, predicate);
 
         match r_protos {
             Ok(protos) => {
+                if let Some(err) = pre_seal_err_check(&protos) {
+                    return done_tx.send(Err(err)).expects(FATAL_NOSEND);
+                }
+
                 for p in &protos {
                     self.m
                         .commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
@@ -247,7 +283,7 @@ impl Scheduler {
         m: SectorMetadataManager<T, S>,
     ) -> Result<Scheduler> {
         let thread = thread::spawn(move || {
-            let mut h = Handler {
+            let mut h = TaskHandler {
                 m,
                 scheduler_tx,
                 worker_tx: worker_tx.clone(),

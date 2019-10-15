@@ -350,8 +350,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         );
     }
 
-    seal_sector(
-        &mut ctx,
+    seal_sector_nonblocking(
         a_ptr,
         124,
         sector_builder_ffi_FFISealTicket {
@@ -360,8 +359,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         },
     );
 
-    seal_sector(
-        &mut ctx,
+    seal_sector_nonblocking(
         a_ptr,
         126,
         sector_builder_ffi_FFISealTicket {

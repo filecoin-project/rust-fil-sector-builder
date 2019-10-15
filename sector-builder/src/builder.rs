@@ -117,7 +117,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         log_unrecov(self.run_blocking(|tx| SchedulerTask::ResumeSealSector(sector_id, tx)))
             .and_then(|x| {
                 x.first()
-                    .map(|y| y.clone())
+                    .cloned()
                     .ok_or_else(|| format_err!("resume_seal_sector expected one sector"))
             })
     }
@@ -131,7 +131,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         log_unrecov(self.run_blocking(|tx| SchedulerTask::SealSector(sector_id, seal_ticket, tx)))
             .and_then(|x| {
                 x.first()
-                    .map(|y| y.clone())
+                    .cloned()
                     .ok_or_else(|| format_err!("seal_sector expected one sector"))
             })
     }

@@ -150,10 +150,7 @@ impl Scheduler {
                         match r_protos {
                             Ok(protos) => {
                                 for p in &protos {
-                                    m.commit_sector_to_ticket(
-                                        p.sector_id.clone(),
-                                        p.seal_ticket.clone(),
-                                    );
+                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
                                 worker_tx
@@ -177,10 +174,7 @@ impl Scheduler {
                         match r_protos {
                             Ok(protos) => {
                                 for p in &protos {
-                                    m.commit_sector_to_ticket(
-                                        p.sector_id.clone(),
-                                        p.seal_ticket.clone(),
-                                    );
+                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
                                 worker_tx
@@ -206,10 +200,7 @@ impl Scheduler {
                         match r_protos {
                             Ok(protos) => {
                                 for p in &protos {
-                                    m.commit_sector_to_ticket(
-                                        p.sector_id.clone(),
-                                        p.seal_ticket.clone(),
-                                    );
+                                    m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
                                 worker_tx

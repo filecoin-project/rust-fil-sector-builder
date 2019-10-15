@@ -58,16 +58,22 @@ pub struct SealInput {
     staged_sector_path: PathBuf,
 }
 
+type UnsealCallback = Box<dyn FnOnce(Result<(UnpaddedBytesAmount, PathBuf)>) + Send>;
+
+type GeneratePoStCallback = Box<dyn FnOnce(Result<Vec<u8>>) + Send>;
+
+type SealMultipleCallback = Box<dyn FnOnce(Vec<SealResult>) + Send>;
+
 pub enum WorkerTask {
     GeneratePoSt {
         challenge_seed: [u8; 32],
         private_replicas: BTreeMap<SectorId, PrivateReplicaInfo>,
         post_config: PoStConfig,
-        callback: Box<dyn FnOnce(Result<Vec<u8>>) + Send>,
+        callback: GeneratePoStCallback,
     },
     SealMultiple {
         seal_inputs: Vec<SealInput>,
-        callback: Box<dyn FnOnce(Vec<SealResult>) + Send>,
+        callback: SealMultipleCallback,
     },
     Unseal {
         comm_d: [u8; 32],
@@ -78,7 +84,7 @@ pub enum WorkerTask {
         seal_ticket: SealTicket,
         sector_id: SectorId,
         source_path: PathBuf,
-        callback: Box<dyn FnOnce(Result<(UnpaddedBytesAmount, PathBuf)>) + Send>,
+        callback: UnsealCallback,
     },
     Shutdown,
 }
@@ -86,7 +92,7 @@ pub enum WorkerTask {
 impl WorkerTask {
     pub fn from_generate_post_proto(
         proto: GeneratePoStTaskPrototype,
-        callback: Box<dyn FnOnce(Result<Vec<u8>>) + Send>,
+        callback: GeneratePoStCallback,
     ) -> WorkerTask {
         WorkerTask::GeneratePoSt {
             challenge_seed: proto.challenge_seed,
@@ -98,7 +104,7 @@ impl WorkerTask {
 
     pub fn from_seal_protos(
         protos: Vec<SealTaskPrototype>,
-        callback: Box<dyn FnOnce(Vec<SealResult>) + Send>,
+        callback: SealMultipleCallback,
     ) -> WorkerTask {
         WorkerTask::SealMultiple {
             callback,
@@ -117,10 +123,7 @@ impl WorkerTask {
         }
     }
 
-    pub fn from_unseal_proto(
-        proto: UnsealTaskPrototype,
-        callback: Box<dyn FnOnce(Result<(UnpaddedBytesAmount, PathBuf)>) + Send>,
-    ) -> WorkerTask {
+    pub fn from_unseal_proto(proto: UnsealTaskPrototype, callback: UnsealCallback) -> WorkerTask {
         WorkerTask::Unseal {
             callback,
             comm_d: proto.comm_d,

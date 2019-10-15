@@ -172,7 +172,7 @@ impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> TaskHa
                         ));
                     }
 
-                    return None;
+                    None
                 };
 
                 self.seal_matching(tx, Default::default(), p, f);
@@ -190,7 +190,7 @@ impl<T: KeyValueStore, U: SectorStore, V: 'static + Send + std::io::Read> TaskHa
                         ));
                     }
 
-                    return None;
+                    None
                 };
 
                 self.seal_matching(tx, seal_ticket, p, f);

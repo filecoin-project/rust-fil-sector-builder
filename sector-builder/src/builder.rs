@@ -42,7 +42,6 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
     #[allow(clippy::too_many_arguments)]
     pub fn init_from_metadata(
         sector_class: SectorClass,
-        current_seal_ticket: SealTicket,
         last_committed_sector_id: SectorId,
         metadata_dir: impl AsRef<Path>,
         prover_id: [u8; 32],
@@ -87,15 +86,13 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 
-            loaded.unwrap_or_else(|| {
-                SectorBuilderState::new(current_seal_ticket, last_committed_sector_id)
-            })
+            loaded.unwrap_or_else(|| SectorBuilderState::initialize(last_committed_sector_id))
         };
 
         let max_user_bytes_per_staged_sector =
             sector_store.sector_config().max_unsealed_bytes_per_sector();
 
-        let m = SectorMetadataManager {
+        let m = SectorMetadataManager::initialize(
             kv_store,
             sector_store,
             state,
@@ -103,7 +100,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
             max_user_bytes_per_staged_sector,
             prover_id,
             sector_size,
-        };
+        );
 
         let scheduler = Scheduler::start(scheduler_tx.clone(), scheduler_rx, worker_tx.clone(), m)?;
 
@@ -115,12 +112,28 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         })
     }
 
-    // Sets the ticket that the sector builder will use when sealing. The ticket
-    // will be persisted to the metadata store along with seal output such that
-    // it is available in the future when a request to unseal the sector is
-    // received.
-    pub fn set_current_seal_ticket(&self, seal_ticket: SealTicket) -> Result<()> {
-        log_unrecov(self.run_blocking(|tx| SchedulerTask::SetCurrentSealTicket(seal_ticket, tx)))
+    /// TODO: document this
+    pub fn resume_seal_sector(&self, sector_id: SectorId) -> Result<SealedSectorMetadata> {
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::ResumeSealSector(sector_id, tx)))
+            .and_then(|x| {
+                x.first()
+                    .map(|y| y.clone())
+                    .ok_or_else(|| format_err!("resume_seal_sector expected one sector"))
+            })
+    }
+
+    /// TODO: document this
+    pub fn seal_sector(
+        &self,
+        sector_id: SectorId,
+        seal_ticket: SealTicket,
+    ) -> Result<SealedSectorMetadata> {
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::SealSector(sector_id, seal_ticket, tx)))
+            .and_then(|x| {
+                x.first()
+                    .map(|y| y.clone())
+                    .ok_or_else(|| format_err!("seal_sector expected one sector"))
+            })
     }
 
     // Stages user piece-bytes for sealing. Note that add_piece calls are
@@ -150,9 +163,13 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         log_unrecov(self.run_blocking(|tx| SchedulerTask::RetrievePiece(piece_key, tx)))
     }
 
-    // For demo purposes. Schedules sealing of all staged sectors.
-    pub fn seal_all_staged_sectors(&self) -> Result<()> {
-        log_unrecov(self.run_blocking(SchedulerTask::SealAllStagedSectors))
+    // For demo purposes. Schedules sealing of all staged sectors, blocking
+    // until complete.
+    pub fn seal_all_staged_sectors(
+        &self,
+        seal_ticket: SealTicket,
+    ) -> Result<Vec<SealedSectorMetadata>> {
+        log_unrecov(self.run_blocking(|tx| SchedulerTask::SealAllStagedSectors(seal_ticket, tx)))
     }
 
     // Returns all sealed sector metadata.
@@ -298,10 +315,6 @@ pub mod tests {
 
         let result = SectorBuilder::<std::fs::File>::init_from_metadata(
             nonsense_sector_class,
-            SealTicket {
-                height: 0,
-                bytes: [0u8; 32],
-            },
             SectorId::from(0),
             temp_dir.clone(),
             [0u8; 32],

@@ -41,27 +41,29 @@ pub enum SealStatus {
     Pending,
     Sealed(Box<SealedSectorMetadata>),
     ReadyForSealing,
+    Paused(SealTicket),
     Sealing(SealTicket),
 }
 
 impl SealStatus {
     pub fn is_sealing(&self) -> bool {
         match self {
-            SealStatus::Failed(_) => false,
-            SealStatus::Pending => false,
-            SealStatus::Sealed(_) => false,
-            SealStatus::ReadyForSealing => false,
             SealStatus::Sealing(_) => true,
+            _ => false,
         }
     }
 
     pub fn is_ready_for_sealing(&self) -> bool {
         match self {
-            SealStatus::Failed(_) => false,
-            SealStatus::Pending => false,
-            SealStatus::Sealed(_) => false,
             SealStatus::ReadyForSealing => true,
-            SealStatus::Sealing(_) => false,
+            _ => false,
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        match self {
+            SealStatus::Paused(_) => true,
+            _ => false,
         }
     }
 }
@@ -69,10 +71,10 @@ impl SealStatus {
 #[derive(Clone, Serialize, Default, Deserialize, Debug, PartialEq)]
 pub struct SealTicket {
     /// the height at which we chose the ticket
-    pub height: u64,
+    pub block_height: u64,
 
     /// bytes of the minimum ticket chosen from a block with given height
-    pub bytes: [u8; 32],
+    pub ticket_bytes: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

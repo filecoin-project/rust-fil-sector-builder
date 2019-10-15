@@ -4,8 +4,10 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::scheduler::SchedulerTask;
-use crate::{PoRepConfig, SealTicket, UnpaddedByteIndex, UnpaddedBytesAmount};
+use crate::scheduler::{SchedulerTask, SealResult};
+use crate::{
+    PoRepConfig, SealTicket, SealedSectorMetadata, UnpaddedByteIndex, UnpaddedBytesAmount,
+};
 use filecoin_proofs::{PoStConfig, PrivateReplicaInfo};
 use std::collections::btree_map::BTreeMap;
 use std::path::PathBuf;
@@ -49,6 +51,16 @@ pub struct SealTaskPrototype {
     pub(crate) staged_sector_path: PathBuf,
 }
 
+pub struct SealInput {
+    piece_lens: Vec<UnpaddedBytesAmount>,
+    porep_config: PoRepConfig,
+    seal_ticket: SealTicket,
+    sealed_sector_access: String,
+    sealed_sector_path: PathBuf,
+    sector_id: SectorId,
+    staged_sector_path: PathBuf,
+}
+
 pub enum WorkerTask<T> {
     GeneratePoSt {
         challenge_seed: [u8; 32],
@@ -56,14 +68,9 @@ pub enum WorkerTask<T> {
         post_config: PoStConfig,
         done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
     },
-    Seal {
-        piece_lens: Vec<UnpaddedBytesAmount>,
-        porep_config: PoRepConfig,
-        seal_ticket: SealTicket,
-        sealed_sector_access: String,
-        sealed_sector_path: PathBuf,
-        sector_id: SectorId,
-        staged_sector_path: PathBuf,
+    SealMultiple {
+        seal_inputs: Vec<SealInput>,
+        caller_done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     },
     Unseal {
@@ -94,19 +101,26 @@ impl<T> WorkerTask<T> {
         }
     }
 
-    pub fn from_seal_proto(
-        proto: SealTaskPrototype,
+    pub fn from_seal_protos(
+        protos: Vec<SealTaskPrototype>,
+        caller_done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
         done_tx: mpsc::SyncSender<SchedulerTask<T>>,
     ) -> WorkerTask<T> {
-        WorkerTask::Seal {
+        WorkerTask::SealMultiple {
+            caller_done_tx,
             done_tx,
-            piece_lens: proto.piece_lens,
-            porep_config: proto.porep_config,
-            seal_ticket: proto.seal_ticket,
-            sealed_sector_access: proto.sealed_sector_access,
-            sealed_sector_path: proto.sealed_sector_path,
-            sector_id: proto.sector_id,
-            staged_sector_path: proto.staged_sector_path,
+            seal_inputs: protos
+                .into_iter()
+                .map(|proto| SealInput {
+                    piece_lens: proto.piece_lens,
+                    porep_config: proto.porep_config,
+                    seal_ticket: proto.seal_ticket,
+                    sealed_sector_access: proto.sealed_sector_access,
+                    sealed_sector_path: proto.sealed_sector_path,
+                    sector_id: proto.sector_id,
+                    staged_sector_path: proto.staged_sector_path,
+                })
+                .collect(),
         }
     }
 
@@ -161,33 +175,37 @@ impl Worker {
                         ))
                         .expects(FATAL_SNDRLT);
                 }
-                WorkerTask::Seal {
-                    porep_config,
-                    sector_id,
-                    seal_ticket,
-                    sealed_sector_access,
-                    sealed_sector_path,
-                    staged_sector_path,
-                    piece_lens,
+                WorkerTask::SealMultiple {
+                    seal_inputs,
+                    caller_done_tx,
                     done_tx,
                 } => {
-                    let result = filecoin_proofs::seal(
-                        porep_config,
-                        &staged_sector_path,
-                        &sealed_sector_path,
-                        prover_id,
-                        sector_id,
-                        seal_ticket.bytes,
-                        &piece_lens,
-                    );
+                    let mut output: Vec<SealResult> = Vec::with_capacity(seal_inputs.len());
+
+                    for input in seal_inputs {
+                        let result = filecoin_proofs::seal(
+                            input.porep_config,
+                            &input.staged_sector_path,
+                            &input.sealed_sector_path,
+                            prover_id,
+                            input.sector_id,
+                            input.seal_ticket.ticket_bytes,
+                            &input.piece_lens,
+                        );
+
+                        output.push(SealResult {
+                            sector_id: input.sector_id,
+                            sector_access: input.sealed_sector_access,
+                            sector_path: input.sealed_sector_path,
+                            seal_ticket: input.seal_ticket,
+                            proofs_api_call_result: result,
+                        });
+                    }
 
                     done_tx
-                        .send(SchedulerTask::HandleSealResult {
-                            sector_id,
-                            sector_access: sealed_sector_access,
-                            sector_path: sealed_sector_path,
-                            seal_ticket,
-                            result,
+                        .send(SchedulerTask::OnSealMultipleComplete {
+                            output,
+                            caller_done_tx,
                         })
                         .expects(FATAL_SNDRLT);
                 }
@@ -210,7 +228,7 @@ impl Worker {
                         prover_id,
                         sector_id,
                         comm_d,
-                        seal_ticket.bytes,
+                        seal_ticket.ticket_bytes,
                         piece_start_byte,
                         piece_len,
                     )

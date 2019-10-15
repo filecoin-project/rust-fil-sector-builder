@@ -9,6 +9,7 @@ use storage_proofs::sector::SectorId;
 
 use crate::error::Result;
 use crate::kv_store::KeyValueStore;
+use crate::scheduler::SealResult;
 use crate::state::SectorBuilderState;
 use crate::worker::{GeneratePoStTaskPrototype, SealTaskPrototype, UnsealTaskPrototype};
 use crate::GetSealedSectorResult::WithHealth;
@@ -26,13 +27,48 @@ const FATAL_SNPSHT: &str = "could not snapshot";
 // worker-threads. Other, inexpensive work (or work which needs to be performed
 // serially) is handled by the SectorBuilderStateManager itself.
 pub struct SectorMetadataManager<T: KeyValueStore, S: SectorStore> {
-    pub kv_store: T,
-    pub sector_store: S,
-    pub state: SectorBuilderState,
-    pub max_num_staged_sectors: u8,
-    pub max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
-    pub prover_id: [u8; 32],
-    pub sector_size: PaddedBytesAmount,
+    kv_store: T,
+    sector_store: S,
+    state: SectorBuilderState,
+    max_num_staged_sectors: u8,
+    max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
+    prover_id: [u8; 32],
+    sector_size: PaddedBytesAmount,
+}
+
+impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
+    pub fn initialize(
+        kv_store: T,
+        sector_store: S,
+        mut state: SectorBuilderState,
+        max_num_staged_sectors: u8,
+        max_user_bytes_per_staged_sector: UnpaddedBytesAmount,
+        prover_id: [u8; 32],
+        sector_size: PaddedBytesAmount,
+    ) -> SectorMetadataManager<T, S> {
+        // If a previous instance of the SectorBuilder was shut down mid-seal,
+        // its metadata store will contain staged sectors who are still
+        // "Sealing." If we do have any of those when we start the Scheduler,
+        // we should transition them to "Paused" and let the consumers schedule
+        // the resume_seal_sector call.
+        //
+        // For more information, see rust-fil-sector-builder/17.
+        for s in state.staged.sectors.values_mut() {
+            if let SealStatus::Sealing(ref ticket) = s.seal_status {
+                s.seal_status = SealStatus::Paused(ticket.clone())
+            }
+        }
+
+        SectorMetadataManager {
+            kv_store,
+            sector_store,
+            state,
+            max_num_staged_sectors,
+            max_user_bytes_per_staged_sector,
+            prover_id,
+            sector_size,
+        }
+    }
 }
 
 impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
@@ -164,23 +200,22 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         self.checkpoint().expects(FATAL_SNPSHT);
     }
 
-    // Set the ticket which should be used when sealing.
-    pub fn set_current_seal_ticket(&mut self, seal_ticket: SealTicket) {
-        self.state.current_seal_ticket = seal_ticket;
-        self.checkpoint().expects(FATAL_SNPSHT);
-    }
-
-    // Get the current ticket.
-    pub fn get_current_seal_ticket(&self) -> &SealTicket {
-        &self.state.current_seal_ticket
-    }
-
     // Produces a vector containing metadata for all sealed sectors that this
     // SectorBuilder knows about. Includes sector health-information on request.
-    pub fn get_sealed_sectors(&self, check_health: bool) -> Result<Vec<GetSealedSectorResult>> {
+    pub fn get_sealed_sectors_filtered<P: FnMut(&SealedSectorMetadata) -> bool>(
+        &self,
+        check_health: bool,
+        mut predicate: P,
+    ) -> Result<Vec<GetSealedSectorResult>> {
         use rayon::prelude::*;
 
-        let sectors_iter = self.state.sealed.sectors.values().cloned();
+        let sectors_iter = self
+            .state
+            .sealed
+            .sectors
+            .values()
+            .filter(|x| predicate(*x))
+            .cloned();
 
         if !check_health {
             return Ok(sectors_iter
@@ -211,7 +246,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
     }
 
     // Commits a sector to a given ticket and flips its status to Sealing.
-    pub fn commit_sector_to_ticket(&mut self, sector_id: SectorId, seal_ticket: &SealTicket) {
+    pub fn commit_sector_to_ticket(&mut self, sector_id: SectorId, seal_ticket: SealTicket) {
         for (k, mut v) in &mut self.state.staged.sectors {
             if sector_id == *k {
                 v.seal_status = SealStatus::Sealing(seal_ticket.clone());
@@ -222,11 +257,21 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         }
     }
 
+    // Creates a SealTaskPrototype suitable for resuming a previously-paused
+    // seal.
+    pub fn create_resume_seal_task_protos<P: FnMut(&StagedSectorMetadata) -> bool>(
+        &mut self,
+        predicate: P,
+    ) -> Result<Vec<SealTaskPrototype>> {
+        self.create_seal_task_protos(Default::default(), predicate)
+    }
+
     // Create a SealTaskPrototype for each staged sector matching the predicate.
     // If a ticket is already associated with the staged sector, use it to
-    // create the proto. Otherwise use the current ticket.
+    // create the proto. Otherwise use the provided ticket.
     pub fn create_seal_task_protos<P: FnMut(&StagedSectorMetadata) -> bool>(
         &mut self,
+        seal_ticket: SealTicket,
         predicate: P,
     ) -> Result<Vec<SealTaskPrototype>> {
         let mut protos: Vec<SealTaskPrototype> = Default::default();
@@ -257,7 +302,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
             let seal_ticket = match staged_sector.seal_status {
                 SealStatus::Sealing(ref ticket) => ticket.clone(),
-                _ => self.state.current_seal_ticket.clone(),
+                SealStatus::Paused(ref ticket) => ticket.clone(),
+                _ => seal_ticket.clone(),
             };
 
             protos.push(SealTaskPrototype {
@@ -307,27 +353,30 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         })
     }
 
-    // Update metadata to reflect the sealing results.
-    pub fn handle_seal_result(
-        &mut self,
-        sector_id: SectorId,
-        sector_access: String,
-        sector_path: PathBuf,
-        ticket: SealTicket,
-        result: Result<SealOutput>,
-    ) {
+    // Update metadata to reflect the sealing results. Propagates the error from
+    // the proofs API call if one was present, otherwise maps API call-output
+    // to sealed sector metadata.
+    pub fn handle_seal_result(&mut self, result: SealResult) -> Result<SealedSectorMetadata> {
         // scope exists to end the mutable borrow of self so that we can
         // checkpoint
-        {
+        let out = {
             let staged_state = &mut self.state.staged;
             let sealed_state = &mut self.state.sealed;
 
             let staged_sector = staged_state
                 .sectors
-                .get_mut(&sector_id)
+                .get_mut(&result.sector_id)
                 .expect("missing staged sector");
 
-            let _ = result
+            let SealResult {
+                sector_id,
+                sector_access,
+                sector_path,
+                seal_ticket,
+                proofs_api_call_result,
+            } = result;
+
+            proofs_api_call_result
                 .and_then(|output| {
                     let SealOutput {
                         comm_r,
@@ -343,7 +392,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         helpers::calculate_checksum(&sector_path)?.as_ref().to_vec();
 
                     // get number of bytes in sealed sector-file
-                    let len = std::fs::metadata(&sector_path)?.len();
+                    let len = std::fs::metadata(&sector_path.clone())?.len();
 
                     // combine the piece commitment, piece inclusion proof, and other piece
                     // metadata into a single struct (to be persisted to metadata store)
@@ -371,21 +420,26 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         proof,
                         blake2b_checksum,
                         len,
-                        seal_ticket: ticket,
+                        seal_ticket,
                     };
 
                     Ok(meta)
                 })
                 .map_err(|err| {
-                    staged_sector.seal_status = SealStatus::Failed(format!("{}", err_unrecov(err)));
+                    staged_sector.seal_status =
+                        SealStatus::Failed(format!("{}", err_unrecov(&err)));
+                    err
                 })
                 .map(|meta| {
+                    staged_sector.seal_status = SealStatus::Sealed(Box::new(meta.clone()));
                     sealed_state.sectors.insert(sector_id, meta.clone());
-                    staged_sector.seal_status = SealStatus::Sealed(Box::new(meta));
-                });
-        }
+                    meta
+                })
+        };
 
         self.checkpoint().expects(FATAL_SNPSHT);
+
+        out
     }
 
     // If any sector is full enough to seal, mark it as such.
@@ -401,7 +455,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         .into_iter()
         .collect();
 
-        for mut v in &mut staged_state.sectors.values_mut() {
+        for mut v in staged_state.sectors.values_mut() {
             if to_be_sealed.contains(&v.sector_id) {
                 v.seal_status = SealStatus::ReadyForSealing;
             }

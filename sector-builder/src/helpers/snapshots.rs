@@ -87,7 +87,6 @@ mod tests {
             let sealed_state = Default::default();
 
             SectorBuilderState {
-                current_seal_ticket: Default::default(),
                 last_committed_sector_id: 100.into(),
                 staged: staged_state,
                 sealed: sealed_state,
@@ -105,7 +104,6 @@ mod tests {
             let sealed_state = Default::default();
 
             SectorBuilderState {
-                current_seal_ticket: Default::default(),
                 last_committed_sector_id: 102.into(),
                 staged: staged_state,
                 sealed: sealed_state,

@@ -4,9 +4,11 @@ use std::ptr;
 
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
-use ffi_toolkit::free_c_str;
+use ffi_toolkit::{free_c_str, rust_str_to_c_str};
 use libc;
-use sector_builder::{SealedSectorHealth, SectorBuilderErr, SectorManagerErr};
+use sector_builder::{
+    PieceMetadata, SealedSectorHealth, SealedSectorMetadata, SectorBuilderErr, SectorManagerErr,
+};
 
 use crate::api::{FFISealTicket, SectorBuilder};
 
@@ -48,6 +50,8 @@ pub enum FFISealStatus {
     Pending = 1,
     Failed = 2,
     Sealing = 3,
+    ReadyForSealing = 4,
+    Paused = 5,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -125,21 +129,45 @@ impl Default for InitSectorBuilderResponse {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// SetCurrentSealTicketResponse
-////////////////////////////////
+/// ResumeSealSectorResponse
+////////////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct SetCurrentSealTicketResponse {
+pub struct ResumeSealSectorResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
+    pub meta: FFISealedSectorMetadata,
 }
 
-impl Default for SetCurrentSealTicketResponse {
-    fn default() -> SetCurrentSealTicketResponse {
-        SetCurrentSealTicketResponse {
+impl Default for ResumeSealSectorResponse {
+    fn default() -> ResumeSealSectorResponse {
+        ResumeSealSectorResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
+            meta: unsafe { mem::zeroed() },
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// SealSectorResponse
+//////////////////////
+
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct SealSectorResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub meta: FFISealedSectorMetadata,
+}
+
+impl Default for SealSectorResponse {
+    fn default() -> SealSectorResponse {
+        SealSectorResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            meta: unsafe { mem::zeroed() },
         }
     }
 }
@@ -199,6 +227,8 @@ impl Default for ReadPieceFromSealedSectorResponse {
 pub struct SealAllStagedSectorsResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
+    pub meta_len: libc::size_t,
+    pub meta_ptr: *const FFISealedSectorMetadata,
 }
 
 impl Default for SealAllStagedSectorsResponse {
@@ -206,6 +236,8 @@ impl Default for SealAllStagedSectorsResponse {
         SealAllStagedSectorsResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
+            meta_len: 0,
+            meta_ptr: ptr::null(),
         }
     }
 }
@@ -245,6 +277,32 @@ pub struct FFIPieceMetadata {
     pub comm_p: [u8; 32],
     pub piece_inclusion_proof_ptr: *const u8,
     pub piece_inclusion_proof_len: libc::size_t,
+}
+
+impl From<PieceMetadata> for FFIPieceMetadata {
+    fn from(meta: PieceMetadata) -> Self {
+        let (len, ptr) = match &meta.piece_inclusion_proof {
+            Some(proof) => {
+                let buf = proof.clone();
+
+                let len = buf.len();
+                let ptr = buf.as_ptr();
+
+                mem::forget(buf);
+
+                (len, ptr)
+            }
+            None => (0, ptr::null()),
+        };
+
+        FFIPieceMetadata {
+            piece_key: rust_str_to_c_str(meta.piece_key.to_string()),
+            num_bytes: meta.num_bytes.into(),
+            comm_p: meta.comm_p.unwrap_or([0; 32]),
+            piece_inclusion_proof_len: len,
+            piece_inclusion_proof_ptr: ptr,
+        }
+    }
 }
 
 impl Default for GetSealStatusResponse {
@@ -303,6 +361,39 @@ pub struct FFISealedSectorMetadata {
     pub seal_ticket: FFISealTicket,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
+}
+
+impl From<SealedSectorMetadata> for FFISealedSectorMetadata {
+    fn from(meta: SealedSectorMetadata) -> Self {
+        let pieces = meta
+            .pieces
+            .into_iter()
+            .map(|x| x.into())
+            .collect::<Vec<FFIPieceMetadata>>();
+
+        let snark_proof = meta.proof.clone();
+
+        let sector = FFISealedSectorMetadata {
+            seal_ticket: FFISealTicket {
+                block_height: meta.seal_ticket.block_height,
+                ticket_bytes: meta.seal_ticket.ticket_bytes,
+            },
+            comm_d: meta.comm_d,
+            comm_r: meta.comm_r,
+            pieces_len: pieces.len(),
+            pieces_ptr: pieces.as_ptr(),
+            proofs_len: snark_proof.len(),
+            proofs_ptr: snark_proof.as_ptr(),
+            sector_access: rust_str_to_c_str(meta.sector_access.clone()),
+            sector_id: u64::from(meta.sector_id),
+            health: FFISealedSectorHealth::Unknown,
+        };
+
+        mem::forget(snark_proof);
+        mem::forget(pieces);
+
+        sector
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////

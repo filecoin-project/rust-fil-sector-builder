@@ -58,8 +58,8 @@ mod tests {
             SealStatus::Pending
         } else {
             SealStatus::Sealing(SealTicket {
-                height: 1,
-                bytes: [0u8; 32],
+                block_height: 1,
+                ticket_bytes: [0u8; 32],
             })
         };
 

@@ -40,8 +40,8 @@ mod tests {
             StagedSectorMetadata {
                 sector_id: SectorId::from(2),
                 seal_status: SealStatus::Sealing(SealTicket {
-                    height: 1,
-                    bytes: [0u8; 32],
+                    block_height: 1,
+                    ticket_bytes: [0u8; 32],
                 }),
                 ..Default::default()
             },
@@ -65,7 +65,6 @@ mod tests {
         );
 
         SectorBuilderState {
-            current_seal_ticket: Default::default(),
             last_committed_sector_id: 4.into(),
             staged: StagedState {
                 sectors: staged_sectors,

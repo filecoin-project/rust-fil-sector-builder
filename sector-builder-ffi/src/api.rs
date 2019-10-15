@@ -185,6 +185,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                     response.seal_status_code = FFISealStatus::Sealed;
                     response.sector_access = rust_str_to_c_str(meta.sector_access);
                     response.sector_id = u64::from(meta.sector_id);
+                    response.seal_ticket = FFISealTicket {
+                        block_height: meta.seal_ticket.block_height,
+                        ticket_bytes: meta.seal_ticket.ticket_bytes,
+                    };
 
                     mem::forget(meta.proof);
                     mem::forget(pieces);

@@ -260,7 +260,7 @@ pub struct GetSealStatusResponse {
     // sealed sector metadata
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
-    pub seal_ticket: [u8; 32],
+    pub seal_ticket: FFISealTicket,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
     pub proof_len: libc::size_t,
@@ -320,7 +320,10 @@ impl Default for GetSealStatusResponse {
             seal_status_code: FFISealStatus::Failed,
             sector_access: ptr::null(),
             sector_id: 0,
-            seal_ticket: Default::default(),
+            seal_ticket: FFISealTicket {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
         }
     }
 }

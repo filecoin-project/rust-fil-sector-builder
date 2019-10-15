@@ -23,7 +23,7 @@ const FATAL_NOLOAD: &str = "could not load snapshot";
 
 pub struct SectorBuilder<T> {
     // Prevents FFI consumers from queueing behind long-running seal operations.
-    worker_tx: mpsc::Sender<WorkerTask<T>>,
+    worker_tx: mpsc::Sender<WorkerTask>,
 
     // For additional seal concurrency, add more workers here.
     workers: Vec<Worker>,

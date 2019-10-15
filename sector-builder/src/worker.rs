@@ -4,18 +4,15 @@ use std::thread;
 use filecoin_proofs::error::ExpectWithBacktrace;
 
 use crate::error::Result;
-use crate::scheduler::{SchedulerTask, SealResult};
-use crate::{
-    PoRepConfig, SealTicket, SealedSectorMetadata, UnpaddedByteIndex, UnpaddedBytesAmount,
-};
+use crate::scheduler::SealResult;
+use crate::{PoRepConfig, SealTicket, UnpaddedByteIndex, UnpaddedBytesAmount};
 use filecoin_proofs::{PoStConfig, PrivateReplicaInfo};
 use std::collections::btree_map::BTreeMap;
 use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
 const FATAL_NOLOCK: &str = "error acquiring task lock";
-const FATAL_RCVTSK: &str = "error receiving seal task";
-const FATAL_SNDRLT: &str = "error sending result";
+const FATAL_RCVTSK: &str = "error receiving task";
 
 pub struct Worker {
     pub id: usize,
@@ -61,20 +58,18 @@ pub struct SealInput {
     staged_sector_path: PathBuf,
 }
 
-pub enum WorkerTask<T> {
+pub enum WorkerTask {
     GeneratePoSt {
         challenge_seed: [u8; 32],
         private_replicas: BTreeMap<SectorId, PrivateReplicaInfo>,
         post_config: PoStConfig,
-        done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
+        callback: Box<dyn FnOnce(Result<Vec<u8>>) + Send>,
     },
     SealMultiple {
         seal_inputs: Vec<SealInput>,
-        caller_done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
-        done_tx: mpsc::SyncSender<SchedulerTask<T>>,
+        callback: Box<dyn FnOnce(Vec<SealResult>) + Send>,
     },
     Unseal {
-        caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
         comm_d: [u8; 32],
         destination_path: PathBuf,
         piece_len: UnpaddedBytesAmount,
@@ -83,19 +78,19 @@ pub enum WorkerTask<T> {
         seal_ticket: SealTicket,
         sector_id: SectorId,
         source_path: PathBuf,
-        done_tx: mpsc::SyncSender<SchedulerTask<T>>,
+        callback: Box<dyn FnOnce(Result<(UnpaddedBytesAmount, PathBuf)>) + Send>,
     },
     Shutdown,
 }
 
-impl<T> WorkerTask<T> {
+impl WorkerTask {
     pub fn from_generate_post_proto(
         proto: GeneratePoStTaskPrototype,
-        done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
-    ) -> WorkerTask<T> {
+        callback: Box<dyn FnOnce(Result<Vec<u8>>) + Send>,
+    ) -> WorkerTask {
         WorkerTask::GeneratePoSt {
             challenge_seed: proto.challenge_seed,
-            done_tx,
+            callback,
             post_config: proto.post_config,
             private_replicas: proto.private_replicas,
         }
@@ -103,12 +98,10 @@ impl<T> WorkerTask<T> {
 
     pub fn from_seal_protos(
         protos: Vec<SealTaskPrototype>,
-        caller_done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
-        done_tx: mpsc::SyncSender<SchedulerTask<T>>,
-    ) -> WorkerTask<T> {
+        callback: Box<dyn FnOnce(Vec<SealResult>) + Send>,
+    ) -> WorkerTask {
         WorkerTask::SealMultiple {
-            caller_done_tx,
-            done_tx,
+            callback,
             seal_inputs: protos
                 .into_iter()
                 .map(|proto| SealInput {
@@ -126,14 +119,12 @@ impl<T> WorkerTask<T> {
 
     pub fn from_unseal_proto(
         proto: UnsealTaskPrototype,
-        caller_done_tx: mpsc::SyncSender<Result<Vec<u8>>>,
-        done_tx: mpsc::SyncSender<SchedulerTask<T>>,
-    ) -> WorkerTask<T> {
+        callback: Box<dyn FnOnce(Result<(UnpaddedBytesAmount, PathBuf)>) + Send>,
+    ) -> WorkerTask {
         WorkerTask::Unseal {
-            caller_done_tx,
+            callback,
             comm_d: proto.comm_d,
             destination_path: proto.destination_path,
-            done_tx,
             piece_len: proto.piece_len,
             piece_start_byte: proto.piece_start_byte,
             porep_config: proto.porep_config,
@@ -145,9 +136,9 @@ impl<T> WorkerTask<T> {
 }
 
 impl Worker {
-    pub fn start<T: 'static + Send>(
+    pub fn start(
         id: usize,
-        seal_task_rx: Arc<Mutex<mpsc::Receiver<WorkerTask<T>>>>,
+        seal_task_rx: Arc<Mutex<mpsc::Receiver<WorkerTask>>>,
         prover_id: [u8; 32],
     ) -> Worker {
         let thread = thread::spawn(move || loop {
@@ -165,20 +156,17 @@ impl Worker {
                     challenge_seed,
                     private_replicas,
                     post_config,
-                    done_tx,
+                    callback,
                 } => {
-                    done_tx
-                        .send(filecoin_proofs::generate_post(
-                            post_config,
-                            &challenge_seed,
-                            &private_replicas,
-                        ))
-                        .expects(FATAL_SNDRLT);
+                    callback(filecoin_proofs::generate_post(
+                        post_config,
+                        &challenge_seed,
+                        &private_replicas,
+                    ));
                 }
                 WorkerTask::SealMultiple {
                     seal_inputs,
-                    caller_done_tx,
-                    done_tx,
+                    callback,
                 } => {
                     let mut output: Vec<SealResult> = Vec::with_capacity(seal_inputs.len());
 
@@ -202,15 +190,9 @@ impl Worker {
                         });
                     }
 
-                    done_tx
-                        .send(SchedulerTask::OnSealMultipleComplete {
-                            output,
-                            caller_done_tx,
-                        })
-                        .expects(FATAL_SNDRLT);
+                    callback(output);
                 }
                 WorkerTask::Unseal {
-                    caller_done_tx,
                     comm_d,
                     destination_path,
                     piece_len,
@@ -219,7 +201,7 @@ impl Worker {
                     seal_ticket,
                     sector_id,
                     source_path,
-                    done_tx,
+                    callback,
                 } => {
                     let result = filecoin_proofs::get_unsealed_range(
                         porep_config,
@@ -234,12 +216,7 @@ impl Worker {
                     )
                     .map(|num_bytes_unsealed| (num_bytes_unsealed, destination_path));
 
-                    done_tx
-                        .send(SchedulerTask::HandleRetrievePieceResult(
-                            result,
-                            caller_done_tx,
-                        ))
-                        .expects(FATAL_SNDRLT);
+                    callback(result);
                 }
                 WorkerTask::Shutdown => break,
             }

@@ -8,6 +8,7 @@ use storage_proofs::sector::SectorId;
 use crate::error::Result;
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, StagedSectorMetadata};
+use crate::scheduler::SchedulerTask::OnSealMultipleComplete;
 use crate::store::SectorStore;
 use crate::worker::WorkerTask;
 use crate::{
@@ -90,7 +91,7 @@ impl Scheduler {
     >(
         scheduler_tx: mpsc::SyncSender<SchedulerTask<U>>,
         scheduler_rx: mpsc::Receiver<SchedulerTask<U>>,
-        worker_tx: mpsc::Sender<WorkerTask<U>>,
+        worker_tx: mpsc::Sender<WorkerTask>,
         mut m: SectorMetadataManager<T, S>,
     ) -> Result<Scheduler> {
         let thread = thread::spawn(move || {
@@ -115,11 +116,18 @@ impl Scheduler {
                     SchedulerTask::RetrievePiece(piece_key, tx) => {
                         match m.create_retrieve_piece_task_proto(piece_key) {
                             Ok(proto) => {
+                                let scheduler_tx_c = scheduler_tx.clone();
+
                                 worker_tx
                                     .send(WorkerTask::from_unseal_proto(
                                         proto,
-                                        tx.clone(),
-                                        scheduler_tx.clone(),
+                                        Box::new(move |output| {
+                                            scheduler_tx_c
+                                                .send(SchedulerTask::HandleRetrievePieceResult(
+                                                    output, tx,
+                                                ))
+                                                .expects(FATAL_NOSEND)
+                                        }),
                                     ))
                                     .expects(FATAL_NOSEND);
                             }
@@ -153,11 +161,19 @@ impl Scheduler {
                                     m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
+                                let scheduler_tx_c = scheduler_tx.clone();
+
                                 worker_tx
                                     .send(WorkerTask::from_seal_protos(
                                         protos,
-                                        tx,
-                                        scheduler_tx.clone(),
+                                        Box::new(move |output| {
+                                            scheduler_tx_c
+                                                .send(OnSealMultipleComplete {
+                                                    output,
+                                                    caller_done_tx: tx,
+                                                })
+                                                .expects(FATAL_NOSEND)
+                                        }),
                                     ))
                                     .expects(FATAL_NOSEND);
                             }
@@ -177,11 +193,19 @@ impl Scheduler {
                                     m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
+                                let scheduler_tx_c = scheduler_tx.clone();
+
                                 worker_tx
                                     .send(WorkerTask::from_seal_protos(
                                         protos,
-                                        tx,
-                                        scheduler_tx.clone(),
+                                        Box::new(move |output| {
+                                            scheduler_tx_c
+                                                .send(OnSealMultipleComplete {
+                                                    output,
+                                                    caller_done_tx: tx,
+                                                })
+                                                .expects(FATAL_NOSEND)
+                                        }),
                                     ))
                                     .expects(FATAL_NOSEND);
                             }
@@ -203,11 +227,19 @@ impl Scheduler {
                                     m.commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
                                 }
 
+                                let scheduler_tx_c = scheduler_tx.clone();
+
                                 worker_tx
                                     .send(WorkerTask::from_seal_protos(
                                         protos,
-                                        tx,
-                                        scheduler_tx.clone(),
+                                        Box::new(move |output| {
+                                            scheduler_tx_c
+                                                .send(OnSealMultipleComplete {
+                                                    output,
+                                                    caller_done_tx: tx,
+                                                })
+                                                .expects(FATAL_NOSEND)
+                                        }),
                                     ))
                                     .expects(FATAL_NOSEND);
                             }
@@ -234,8 +266,13 @@ impl Scheduler {
                     SchedulerTask::GeneratePoSt(comm_rs, chg_seed, faults, tx) => {
                         let proto = m.create_generate_post_task_proto(&comm_rs, &chg_seed, faults);
 
+                        let tx_c = tx.clone();
+
                         worker_tx
-                            .send(WorkerTask::from_generate_post_proto(proto, tx.clone()))
+                            .send(WorkerTask::from_generate_post_proto(
+                                proto,
+                                Box::new(move |r| tx_c.send(r).expects(FATAL_NOSEND)),
+                            ))
                             .expects(FATAL_NOSEND);
                     }
                     SchedulerTask::Shutdown => break,

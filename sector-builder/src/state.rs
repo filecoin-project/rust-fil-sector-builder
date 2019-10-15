@@ -23,7 +23,7 @@ pub struct SectorBuilderState {
 }
 
 impl SectorBuilderState {
-    pub fn initialize(last_committed_sector_id: SectorId) -> SectorBuilderState {
+    pub fn new(last_committed_sector_id: SectorId) -> SectorBuilderState {
         SectorBuilderState {
             last_committed_sector_id,
             staged: StagedState {

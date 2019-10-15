@@ -86,7 +86,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
                     .expects(FATAL_NOLOAD)
                     .map(Into::into);
 
-            loaded.unwrap_or_else(|| SectorBuilderState::initialize(last_committed_sector_id))
+            loaded.unwrap_or_else(|| SectorBuilderState::new(last_committed_sector_id))
         };
 
         let max_user_bytes_per_staged_sector =

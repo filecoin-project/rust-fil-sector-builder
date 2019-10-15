@@ -85,7 +85,10 @@ pub enum SchedulerTask<T: Read + Send> {
 
 impl<T: Read + Send> SchedulerTask<T> {
     fn should_continue(&self) -> bool {
-        true
+        match self {
+            SchedulerTask::Shutdown => false,
+            _ => true,
+        }
     }
 }
 

@@ -35,7 +35,7 @@ pub struct PieceMetadata {
     pub piece_inclusion_proof: Option<Vec<u8>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum SealStatus {
     Failed(String),
     Pending,
@@ -44,15 +44,24 @@ pub enum SealStatus {
     Sealing(SealTicket),
 }
 
-impl PartialEq for SealStatus {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (SealStatus::Failed(_), SealStatus::Failed(_)) => true,
-            (SealStatus::Pending, SealStatus::Pending) => true,
-            (SealStatus::Sealed(_), SealStatus::Sealed(_)) => true,
-            (SealStatus::ReadyForSealing, SealStatus::ReadyForSealing) => true,
-            (SealStatus::Sealing(_), SealStatus::Sealing(_)) => true,
-            (_, _) => false,
+impl SealStatus {
+    pub fn is_sealing(&self) -> bool {
+        match self {
+            SealStatus::Failed(_) => false,
+            SealStatus::Pending => false,
+            SealStatus::Sealed(_) => false,
+            SealStatus::ReadyForSealing => false,
+            SealStatus::Sealing(_) => true,
+        }
+    }
+
+    pub fn is_ready_for_sealing(&self) -> bool {
+        match self {
+            SealStatus::Failed(_) => false,
+            SealStatus::Pending => false,
+            SealStatus::Sealed(_) => false,
+            SealStatus::ReadyForSealing => true,
+            SealStatus::Sealing(_) => false,
         }
     }
 }

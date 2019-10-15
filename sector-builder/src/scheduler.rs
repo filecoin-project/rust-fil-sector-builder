@@ -83,9 +83,7 @@ impl Scheduler {
         // we should immediately restart sealing.
         //
         // For more information, see rust-fil-sector-builder/17.
-        let protos = m.create_seal_task_protos(|x| {
-            x.seal_status == SealStatus::Sealing(Default::default())
-        })?;
+        let protos = m.create_seal_task_protos(|x| x.seal_status.is_sealing())?;
 
         for p in protos {
             worker_tx
@@ -143,9 +141,7 @@ impl Scheduler {
                     SchedulerTask::SealAllStagedSectors(tx) => {
                         m.mark_all_sectors_for_sealing();
 
-                        match m.create_seal_task_protos(|x| {
-                            x.seal_status == SealStatus::ReadyForSealing
-                        }) {
+                        match m.create_seal_task_protos(|x| x.seal_status.is_ready_for_sealing()) {
                             Ok(protos) => {
                                 for p in protos {
                                     m.commit_sector_to_ticket(p.sector_id, &p.seal_ticket);
@@ -168,9 +164,7 @@ impl Scheduler {
                     SchedulerTask::SetCurrentSealTicket(seal_ticket, tx) => {
                         m.set_current_seal_ticket(seal_ticket);
 
-                        match m.create_seal_task_protos(|x| {
-                            x.seal_status == SealStatus::ReadyForSealing
-                        }) {
+                        match m.create_seal_task_protos(|x| x.seal_status.is_ready_for_sealing()) {
                             Ok(protos) => {
                                 for p in protos {
                                     m.commit_sector_to_ticket(p.sector_id, &p.seal_ticket);

@@ -258,15 +258,6 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
         }
     }
 
-    // Creates a SealTaskPrototype suitable for resuming a previously-paused
-    // seal.
-    pub fn create_resume_seal_task_protos<P: FnMut(&StagedSectorMetadata) -> bool>(
-        &mut self,
-        predicate: P,
-    ) -> Result<Vec<SealTaskPrototype>> {
-        self.create_seal_task_protos(Default::default(), predicate)
-    }
-
     // Create a SealTaskPrototype for each staged sector matching the predicate.
     // If a ticket is already associated with the staged sector, use it to
     // create the proto. Otherwise use the provided ticket.

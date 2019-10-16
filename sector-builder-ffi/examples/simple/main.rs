@@ -58,8 +58,8 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
-    unsafe { kill_restart_recovery(sector_size).unwrap() };
     unsafe { sector_builder_lifecycle(sector_size).unwrap() };
+    unsafe { kill_restart_recovery(sector_size).unwrap() };
 }
 
 /// A test which simulates a sector builder being shutdown impolitely (SIGKILL).
@@ -88,7 +88,10 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
     let staging_dir_a_c = staging_dir_a.path().clone();
     let sealed_dir_a_c = sealed_dir_a.path().clone();
 
-    let prover_id = [1u8; 31];
+    let prover_id = [1u8; 32];
+    let seal_ticket = [1u8; 32];
+
+    let mut ctx: Deallocator = Default::default();
 
     // use an OS pipe so that we can communicate between processes
     let (mut done_tx, mut done_rx) = pipe_channel::channel();
@@ -129,8 +132,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                 cfg.max_num_staged_sectors,
             );
 
-            // add a piece which completely fills a staged sector (and triggers
-            // sealing)
+            // add a piece which completely fills a staged sector
             {
                 let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
                 assert_eq!(
@@ -138,6 +140,16 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                     add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000)
                 );
             }
+
+            // call seal_sector w/out blocking
+            seal_sector_nonblocking(
+                ptr,
+                501,
+                sector_builder_ffi_FFISealTicket {
+                    block_height: 2,
+                    ticket_bytes: seal_ticket,
+                },
+            );
 
             // block until sector sealing begins
             poll_for_sector_sealing_status(
@@ -160,7 +172,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         Err(err) => panic!(err),
     }
 
-    // initialize a sector builder - sealing will resume immediately
+    // initialize a sector builder
     let ptr = init_sector_builder(
         &mut Default::default(),
         &metadata_dir_a,
@@ -171,6 +183,19 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         cfg.sector_class,
         cfg.max_num_staged_sectors,
     );
+    defer!(sector_builder_ffi_destroy_sector_builder(ptr));
+
+    // resume sealing for all paused sectors
+    {
+        let mut n = 0;
+        for s in get_staged_sectors(&mut ctx, ptr).iter() {
+            if s.seal_status_code == sector_builder_ffi_FFISealStatus_Paused {
+                resume_seal_sector_nonblocking(ptr, s.sector_id);
+                n = n + 1;
+            }
+        }
+        assert_eq!(n, 1, "should have resumed but one seal op");
+    }
 
     // block until the sector has sealed
     poll_for_sector_sealing_status(
@@ -179,6 +204,25 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         sector_builder_ffi_FFISealStatus_Sealed,
         cfg.max_secs_to_seal_sector * 2,
     );
+
+    // get sealed sector and verify the proof using the second ticket
+    {
+        let sealed_sector = get_sealed_sector(&mut ctx, ptr, 501);
+
+        assert!(
+            verify_seal(
+                &mut ctx,
+                cfg.sector_class.sector_size,
+                sealed_sector.sector_id,
+                seal_ticket,
+                slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
+                sealed_sector.comm_r,
+                sealed_sector.comm_d,
+                prover_id,
+            ),
+            "seal verification failed for sector with id 501"
+        );
+    }
 
     Ok(())
 }
@@ -219,7 +263,8 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     let sealed_dir_a = tempfile::tempdir()?;
     let sealed_dir_b = tempfile::tempdir()?;
 
-    let prover_id = [1u8; 31];
+    let prover_id = [1u8; 32];
+    let seal_ticket = [1u8; 32];
 
     let mut ctx: Deallocator = Default::default();
 
@@ -296,8 +341,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         )
     );
 
-    // add fifth piece, which completely fills a staged sector (and triggers
-    // sealing)
+    // add a fifth piece, which completely fills a staged sector
     {
         let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
         assert_eq!(
@@ -305,6 +349,24 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
         );
     }
+
+    seal_sector_nonblocking(
+        a_ptr,
+        124,
+        sector_builder_ffi_FFISealTicket {
+            block_height: 10,
+            ticket_bytes: seal_ticket,
+        },
+    );
+
+    seal_sector_nonblocking(
+        a_ptr,
+        126,
+        sector_builder_ffi_FFISealTicket {
+            block_height: 10,
+            ticket_bytes: seal_ticket,
+        },
+    );
 
     // block until both sectors have been sealed - note that we won't know which
     // of the two sectors will seal first
@@ -364,7 +426,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         );
     }
 
-    // get sealed sector and verify the proof
+    // get sealed sector and verify the proof using the ticket we sealed with
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 
@@ -373,13 +435,32 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 &mut ctx,
                 cfg.sector_class.sector_size,
                 sealed_sector.sector_id,
+                seal_ticket,
                 slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
                 sealed_sector.comm_r,
                 sealed_sector.comm_d,
-                sealed_sector.comm_r_star,
                 prover_id,
             ),
-            "seal verification failed"
+            "seal verification failed for sector with id 124"
+        );
+    }
+
+    // get second sealed sector and verify the proof using the second ticket
+    {
+        let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 126);
+
+        assert!(
+            verify_seal(
+                &mut ctx,
+                cfg.sector_class.sector_size,
+                sealed_sector.sector_id,
+                seal_ticket,
+                slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
+                sealed_sector.comm_r,
+                sealed_sector.comm_d,
+                prover_id,
+            ),
+            "seal verification failed for sector with id 126"
         );
     }
 

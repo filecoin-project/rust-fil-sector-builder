@@ -60,6 +60,38 @@ pub(crate) unsafe fn get_sector_info(
         .collect()
 }
 
+pub(crate) unsafe fn seal_sector_nonblocking(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    seal_ticket: sector_builder_ffi_FFISealTicket,
+) {
+    let atomic_ptr = AtomicPtr::new(ptr);
+
+    thread::spawn(move || {
+        let sector_builder = atomic_ptr.into_inner();
+
+        let _ = seal_sector(
+            &mut Default::default(),
+            sector_builder,
+            sector_id,
+            seal_ticket,
+        );
+    });
+}
+
+pub(crate) unsafe fn resume_seal_sector_nonblocking(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) {
+    let atomic_ptr = AtomicPtr::new(ptr);
+
+    thread::spawn(move || {
+        let sector_builder = atomic_ptr.into_inner();
+
+        let _ = resume_seal_sector(&mut Default::default(), sector_builder, sector_id);
+    });
+}
+
 pub(crate) unsafe fn poll_for_sector_sealing_status(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,

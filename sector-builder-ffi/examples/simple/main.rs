@@ -279,8 +279,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         cfg.max_num_staged_sectors,
     );
 
-    let max_user_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
-
     // verify that we have neither sealed nor staged sectors yet
     {
         let sealed_sectors = get_sealed_sectors(&mut ctx, a_ptr, false);
@@ -323,7 +321,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         assert_eq!(2, staged_sectors.len());
     }
 
-    // add fourth piece, which triggers sealing of the first sector
+    // add fourth piece, which fills the remaining space in 124
     let MakePiece {
         file: mut fourth_piece_file,
         bytes: fourth_piece_bytes,
@@ -341,15 +339,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         )
     );
 
-    // add a fifth piece, which completely fills a staged sector
-    {
-        let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
-        assert_eq!(
-            126,
-            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
-        );
-    }
-
     seal_sector_nonblocking(
         a_ptr,
         124,
@@ -361,7 +350,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
     seal_sector_nonblocking(
         a_ptr,
-        126,
+        125,
         sector_builder_ffi_FFISealTicket {
             block_height: 10,
             ticket_bytes: seal_ticket,
@@ -379,7 +368,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
     poll_for_sector_sealing_status(
         a_ptr,
-        126,
+        125,
         sector_builder_ffi_FFISealStatus_Sealed,
         cfg.max_secs_to_seal_sector * 2,
     );
@@ -409,7 +398,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             &staging_dir_b,
             &sealed_dir_b,
             prover_id,
-            126,
+            125,
             cfg.sector_class,
             cfg.max_num_staged_sectors,
         )
@@ -447,7 +436,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
     // get second sealed sector and verify the proof using the second ticket
     {
-        let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 126);
+        let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 125);
 
         assert!(
             verify_seal(
@@ -460,7 +449,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_d,
                 prover_id,
             ),
-            "seal verification failed for sector with id 126"
+            "seal verification failed for sector with id 125"
         );
     }
 
@@ -487,12 +476,12 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         assert_eq!(2, get_sealed_sectors(&mut ctx, b_ptr, true).len());
 
         assert_eq!(
-            get_sealed_sector(&mut ctx, b_ptr, 126).health,
+            get_sealed_sector(&mut ctx, b_ptr, 125).health,
             sector_builder_ffi_FFISealedSectorHealth_Ok
         );
 
         let sealed_sector_path = sealed_dir_b.path().join(c_str_to_pbuf(
-            get_sealed_sector(&mut ctx, b_ptr, 126).sector_access,
+            get_sealed_sector(&mut ctx, b_ptr, 125).sector_access,
         ));
 
         let content = std::fs::read(&sealed_sector_path).expect("failed to read sector data");
@@ -506,7 +495,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
         // invalid checksum
         assert_eq!(
-            get_sealed_sector(&mut ctx, b_ptr, 126).health,
+            get_sealed_sector(&mut ctx, b_ptr, 125).health,
             sector_builder_ffi_FFISealedSectorHealth_ErrorInvalidChecksum
         );
     }

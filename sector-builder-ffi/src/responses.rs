@@ -408,9 +408,8 @@ impl From<SealedSectorMetadata> for FFISealedSectorMetadata {
 pub struct GetSealedSectorsResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-
-    pub sectors_len: libc::size_t,
-    pub sectors_ptr: *const FFISealedSectorMetadata,
+    pub meta_len: libc::size_t,
+    pub meta_ptr: *const FFISealedSectorMetadata,
 }
 
 impl Default for GetSealedSectorsResponse {
@@ -418,8 +417,8 @@ impl Default for GetSealedSectorsResponse {
         GetSealedSectorsResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            sectors_len: 0,
-            sectors_ptr: ptr::null(),
+            meta_len: 0,
+            meta_ptr: ptr::null(),
         }
     }
 }

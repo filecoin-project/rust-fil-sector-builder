@@ -79,7 +79,7 @@ pub(crate) unsafe fn get_sealed_sectors(
         panic!("{}", c_str_to_rust_str((*resp).error_msg))
     }
 
-    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
+    slice::from_raw_parts((*resp).meta_ptr, (*resp).meta_len).to_vec()
 }
 
 pub(crate) unsafe fn get_staged_sectors(

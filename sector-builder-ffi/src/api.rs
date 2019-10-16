@@ -11,7 +11,7 @@ use storage_proofs::sector::SectorId;
 
 use crate::responses::{
     self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
-    FFISealedSectorHealth,
+    FFISealedSectorHealth, FFISealedSectorMetadata,
 };
 
 #[repr(C)]
@@ -235,48 +235,23 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
             response.status_code = FCPResponseStatus::FCPNoError;
 
             let sectors = sealed_sectors
-                .iter()
+                .into_iter()
                 .map(|wrapped_meta| {
                     let (ffi_health, meta) = match wrapped_meta {
-                        GetSealedSectorResult::WithHealth(h, m) => ((*h).into(), m),
+                        GetSealedSectorResult::WithHealth(h, m) => (h.into(), m),
                         GetSealedSectorResult::WithoutHealth(m) => {
                             (FFISealedSectorHealth::Unknown, m)
                         }
                     };
 
-                    let pieces = meta
-                        .pieces
-                        .iter()
-                        .map(|x| x.clone().into())
-                        .collect::<Vec<FFIPieceMetadata>>();
-
-                    let snark_proof = meta.proof.clone();
-
-                    let sector = responses::FFISealedSectorMetadata {
-                        seal_ticket: FFISealTicket {
-                            block_height: meta.seal_ticket.block_height,
-                            ticket_bytes: meta.seal_ticket.ticket_bytes,
-                        },
-                        comm_d: meta.comm_d,
-                        comm_r: meta.comm_r,
-                        pieces_len: pieces.len(),
-                        pieces_ptr: pieces.as_ptr(),
-                        proofs_len: snark_proof.len(),
-                        proofs_ptr: snark_proof.as_ptr(),
-                        sector_access: rust_str_to_c_str(meta.sector_access.clone()),
-                        sector_id: u64::from(meta.sector_id),
-                        health: ffi_health,
-                    };
-
-                    mem::forget(snark_proof);
-                    mem::forget(pieces);
-
+                    let mut sector: FFISealedSectorMetadata = meta.into();
+                    sector.health = ffi_health;
                     sector
                 })
                 .collect::<Vec<responses::FFISealedSectorMetadata>>();
 
-            response.sectors_len = sectors.len();
-            response.sectors_ptr = sectors.as_ptr();
+            response.meta_len = sectors.len();
+            response.meta_ptr = sectors.as_ptr();
 
             mem::forget(sectors);
         }
@@ -560,8 +535,18 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_all_staged_sectors(
     let mut response: responses::SealAllStagedSectorsResponse = Default::default();
 
     match (*ptr).seal_all_staged_sectors(seal_ticket.into()) {
-        Ok(_) => {
+        Ok(meta) => {
             response.status_code = FCPResponseStatus::FCPNoError;
+
+            let sectors = meta
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<responses::FFISealedSectorMetadata>>();
+
+            response.meta_len = sectors.len();
+            response.meta_ptr = sectors.as_ptr();
+
+            mem::forget(sectors);
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);

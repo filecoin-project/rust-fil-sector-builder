@@ -2,17 +2,20 @@ use std::mem;
 use std::ptr;
 use std::slice::from_raw_parts;
 
-use ffi_toolkit::rust_str_to_c_str;
-use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
+// The `CodeAndMessage` trait is needed for `catch_panic_response`
+use ffi_toolkit::{
+    c_str_to_rust_str, catch_panic_response, raw_ptr, rust_str_to_c_str, CodeAndMessage,
+    FCPResponseStatus,
+};
 use libc;
 use once_cell::sync::OnceCell;
 use sector_builder::{GetSealedSectorResult, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
 use crate::types::{
-    self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealSeed, FFISealStatus,
-    FFISealTicket, FFISealedSectorHealth, FFISealedSectorMetadata, FFISectorClass,
-    FileDescriptorRef, SectorBuilder,
+    self, err_code_and_msg, FFIPieceMetadata, FFISealSeed, FFISealStatus, FFISealTicket,
+    FFISealedSectorHealth, FFISealedSectorMetadata, FFISectorClass, FileDescriptorRef,
+    SectorBuilder,
 };
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
@@ -27,35 +30,35 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     piece_bytes_amount: u64,
     store_until_utc_secs: u64,
 ) -> *mut types::AddPieceResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("add_piece: {}", "start");
+        info!("add_piece: {}", "start");
 
-    let piece_key = c_str_to_rust_str(piece_key);
-    let piece_fd = FileDescriptorRef::new(piece_fd_raw);
+        let piece_key = c_str_to_rust_str(piece_key);
+        let piece_fd = FileDescriptorRef::new(piece_fd_raw);
 
-    let mut response: types::AddPieceResponse = Default::default();
+        let mut response: types::AddPieceResponse = Default::default();
 
-    match (*ptr).add_piece(
-        piece_key.into(),
-        piece_fd,
-        piece_bytes_amount,
-        SecondsSinceEpoch(store_until_utc_secs),
-    ) {
-        Ok(sector_id) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.sector_id = sector_id.into();
+        match (*ptr).add_piece(
+            piece_key.into(),
+            piece_fd,
+            piece_bytes_amount,
+            SecondsSinceEpoch(store_until_utc_secs),
+        ) {
+            Ok(sector_id) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.sector_id = sector_id.into();
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("add_piece: {}", "finish");
+        info!("add_piece: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Returns the number of user bytes (before bit-padding has been added) which
@@ -78,9 +81,11 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
     piece_fd_raw: libc::c_int,
     unpadded_piece_size: u64,
 ) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    filecoin_proofs_ffi::api::generate_piece_commitment(piece_fd_raw, unpadded_piece_size)
+        filecoin_proofs_ffi::api::generate_piece_commitment(piece_fd_raw, unpadded_piece_size)
+    })
 }
 
 /// Returns sector sealing status for the provided sector id if it exists. If
@@ -90,59 +95,59 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
     ptr: *mut SectorBuilder,
     sector_id: u64,
 ) -> *mut types::GetSealStatusResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    let mut response: types::GetSealStatusResponse = Default::default();
+        let mut response: types::GetSealStatusResponse = Default::default();
 
-    match (*ptr).get_seal_status(SectorId::from(sector_id)) {
-        Ok(seal_status) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.seal_status_code = seal_status.clone().into();
+        match (*ptr).get_seal_status(SectorId::from(sector_id)) {
+            Ok(seal_status) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.seal_status_code = seal_status.clone().into();
 
-            match seal_status {
-                SealStatus::Committed(meta) => {
-                    let meta = *meta;
+                match seal_status {
+                    SealStatus::Committed(meta) => {
+                        let meta = *meta;
 
-                    let pieces = meta
-                        .pieces
-                        .into_iter()
-                        .map(|x| x.into())
-                        .collect::<Vec<FFIPieceMetadata>>();
+                        let pieces = meta
+                            .pieces
+                            .into_iter()
+                            .map(|x| x.into())
+                            .collect::<Vec<FFIPieceMetadata>>();
 
-                    response.comm_d = meta.comm_d;
-                    response.comm_r = meta.comm_r;
-                    response.pieces_len = pieces.len();
-                    response.pieces_ptr = pieces.as_ptr();
-                    response.proof_len = meta.proof.len();
-                    response.proof_ptr = meta.proof.as_ptr();
-                    response.sector_access = rust_str_to_c_str(meta.sector_access);
-                    response.sector_id = u64::from(meta.sector_id);
-                    response.seal_ticket = FFISealTicket {
-                        block_height: meta.ticket.block_height,
-                        ticket_bytes: meta.ticket.ticket_bytes,
-                    };
-                    response.seal_seed = FFISealSeed {
-                        block_height: meta.seed.block_height,
-                        ticket_bytes: meta.seed.ticket_bytes,
-                    };
+                        response.comm_d = meta.comm_d;
+                        response.comm_r = meta.comm_r;
+                        response.pieces_len = pieces.len();
+                        response.pieces_ptr = pieces.as_ptr();
+                        response.proof_len = meta.proof.len();
+                        response.proof_ptr = meta.proof.as_ptr();
+                        response.sector_access = rust_str_to_c_str(meta.sector_access);
+                        response.sector_id = u64::from(meta.sector_id);
+                        response.seal_ticket = FFISealTicket {
+                            block_height: meta.ticket.block_height,
+                            ticket_bytes: meta.ticket.ticket_bytes,
+                        };
+                        response.seal_seed = FFISealSeed {
+                            block_height: meta.seed.block_height,
+                            ticket_bytes: meta.seed.ticket_bytes,
+                        };
 
-                    mem::forget(meta.proof);
-                    mem::forget(pieces);
+                        mem::forget(meta.proof);
+                        mem::forget(pieces);
+                    }
+                    SealStatus::Failed(ref err) => {
+                        response.seal_error_msg = rust_str_to_c_str(err);
+                    }
+                    _ => (),
                 }
-                SealStatus::Failed(ref err) => {
-                    response.seal_error_msg = rust_str_to_c_str(err);
-                }
-                _ => (),
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
             }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 #[no_mangle]
@@ -150,100 +155,100 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
     ptr: *mut SectorBuilder,
     check_health: bool,
 ) -> *mut types::GetSealedSectorsResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    let mut response: types::GetSealedSectorsResponse = Default::default();
+        let mut response: types::GetSealedSectorsResponse = Default::default();
 
-    match (*ptr).get_sealed_sectors(check_health) {
-        Ok(sealed_sectors) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        match (*ptr).get_sealed_sectors(check_health) {
+            Ok(sealed_sectors) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
 
-            let sectors = sealed_sectors
-                .into_iter()
-                .map(|wrapped_meta| {
-                    let (ffi_health, meta) = match wrapped_meta {
-                        GetSealedSectorResult::WithHealth(h, m) => (h.into(), m),
-                        GetSealedSectorResult::WithoutHealth(m) => {
-                            (FFISealedSectorHealth::Unknown, m)
-                        }
-                    };
+                let sectors = sealed_sectors
+                    .into_iter()
+                    .map(|wrapped_meta| {
+                        let (ffi_health, meta) = match wrapped_meta {
+                            GetSealedSectorResult::WithHealth(h, m) => (h.into(), m),
+                            GetSealedSectorResult::WithoutHealth(m) => {
+                                (FFISealedSectorHealth::Unknown, m)
+                            }
+                        };
 
-                    let mut sector: FFISealedSectorMetadata = meta.into();
-                    sector.health = ffi_health;
-                    sector
-                })
-                .collect::<Vec<types::FFISealedSectorMetadata>>();
+                        let mut sector: FFISealedSectorMetadata = meta.into();
+                        sector.health = ffi_health;
+                        sector
+                    })
+                    .collect::<Vec<types::FFISealedSectorMetadata>>();
 
-            response.meta_len = sectors.len();
-            response.meta_ptr = sectors.as_ptr();
+                response.meta_len = sectors.len();
+                response.meta_ptr = sectors.as_ptr();
 
-            mem::forget(sectors);
+                mem::forget(sectors);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
     ptr: *mut SectorBuilder,
 ) -> *mut types::GetStagedSectorsResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    let mut response: types::GetStagedSectorsResponse = Default::default();
+        let mut response: types::GetStagedSectorsResponse = Default::default();
 
-    match (*ptr).get_staged_sectors() {
-        Ok(staged_sectors) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        match (*ptr).get_staged_sectors() {
+            Ok(staged_sectors) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
 
-            let sectors = staged_sectors
-                .iter()
-                .map(|meta| {
-                    let pieces = meta
-                        .pieces
-                        .iter()
-                        .map(|x| x.clone().into())
-                        .collect::<Vec<FFIPieceMetadata>>();
+                let sectors = staged_sectors
+                    .iter()
+                    .map(|meta| {
+                        let pieces = meta
+                            .pieces
+                            .iter()
+                            .map(|x| x.clone().into())
+                            .collect::<Vec<FFIPieceMetadata>>();
 
-                    let mut sector = types::FFIStagedSectorMetadata {
-                        sector_access: rust_str_to_c_str(meta.sector_access.clone()),
-                        sector_id: u64::from(meta.sector_id),
-                        pieces_len: pieces.len(),
-                        pieces_ptr: pieces.as_ptr(),
-                        seal_status_code: FFISealStatus::AcceptingPieces,
-                        seal_error_msg: ptr::null(),
-                    };
+                        let mut sector = types::FFIStagedSectorMetadata {
+                            sector_access: rust_str_to_c_str(meta.sector_access.clone()),
+                            sector_id: u64::from(meta.sector_id),
+                            pieces_len: pieces.len(),
+                            pieces_ptr: pieces.as_ptr(),
+                            seal_status_code: FFISealStatus::AcceptingPieces,
+                            seal_error_msg: ptr::null(),
+                        };
 
-                    sector.seal_status_code = meta.seal_status.clone().into();
+                        sector.seal_status_code = meta.seal_status.clone().into();
 
-                    if let SealStatus::Failed(ref s) = meta.seal_status {
-                        sector.seal_error_msg = rust_str_to_c_str(s.clone());
-                    }
+                        if let SealStatus::Failed(ref s) = meta.seal_status {
+                            sector.seal_error_msg = rust_str_to_c_str(s.clone());
+                        }
 
-                    mem::forget(pieces);
+                        mem::forget(pieces);
 
-                    sector
-                })
-                .collect::<Vec<types::FFIStagedSectorMetadata>>();
+                        sector
+                    })
+                    .collect::<Vec<types::FFIStagedSectorMetadata>>();
 
-            response.sectors_len = sectors.len();
-            response.sectors_ptr = sectors.as_ptr();
+                response.sectors_len = sectors.len();
+                response.sectors_ptr = sectors.as_ptr();
 
-            mem::forget(sectors);
+                mem::forget(sectors);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Generates a proof-of-spacetime for the given replica commitments.
@@ -257,40 +262,40 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     faults_ptr: *const u64,
     faults_len: libc::size_t,
 ) -> *mut types::GeneratePoStResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("generate_post: {}", "start");
+        info!("generate_post: {}", "start");
 
-    let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
-    let faults = from_raw_parts(faults_ptr, faults_len)
-        .iter()
-        .map(|x| SectorId::from(*x))
-        .collect();
+        let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
+        let faults = from_raw_parts(faults_ptr, faults_len)
+            .iter()
+            .map(|x| SectorId::from(*x))
+            .collect();
 
-    let result = (*ptr).generate_post(&comm_rs, challenge_seed, faults);
+        let result = (*ptr).generate_post(&comm_rs, challenge_seed, faults);
 
-    let mut response = types::GeneratePoStResponse::default();
+        let mut response = types::GeneratePoStResponse::default();
 
-    match result {
-        Ok(proof) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        match result {
+            Ok(proof) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
 
-            response.proof_len = proof.len();
-            response.proof_ptr = proof.as_ptr();
+                response.proof_len = proof.len();
+                response.proof_ptr = proof.as_ptr();
 
-            // we'll free this stuff when we free the GeneratePoSTResponse
-            mem::forget(proof);
+                // we'll free this stuff when we free the GeneratePoSTResponse
+                mem::forget(proof);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("generate_post: {}", "finish");
+        info!("generate_post: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Initializes and returns a SectorBuilder.
@@ -307,35 +312,35 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     max_num_staged_sectors: u8,
     num_workers: u8,
 ) -> *mut types::InitSectorBuilderResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    let result = SectorBuilder::init_from_metadata(
-        sector_class.into(),
-        last_used_sector_id.into(),
-        c_str_to_rust_str(metadata_dir).to_string(),
-        *prover_id,
-        c_str_to_rust_str(sealed_sector_dir).to_string(),
-        c_str_to_rust_str(staged_sector_dir).to_string(),
-        c_str_to_rust_str(sector_cache_root_dir).to_string(),
-        max_num_staged_sectors,
-        num_workers,
-    );
+        let result = SectorBuilder::init_from_metadata(
+            sector_class.into(),
+            last_used_sector_id.into(),
+            c_str_to_rust_str(metadata_dir).to_string(),
+            *prover_id,
+            c_str_to_rust_str(sealed_sector_dir).to_string(),
+            c_str_to_rust_str(staged_sector_dir).to_string(),
+            c_str_to_rust_str(sector_cache_root_dir).to_string(),
+            max_num_staged_sectors,
+            num_workers,
+        );
 
-    let mut response = types::InitSectorBuilderResponse::default();
+        let mut response = types::InitSectorBuilderResponse::default();
 
-    match result {
-        Ok(sb) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.sector_builder = raw_ptr(sb);
+        match result {
+            Ok(sb) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.sector_builder = raw_ptr(sb);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Pre-commits a sector of the provided id to a ticket from the chain. This is
@@ -347,45 +352,45 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     sector_id: u64,
     seal_ticket: FFISealTicket,
 ) -> *mut types::SealPreCommitResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("seal_pre_commit: {}", "start");
+        info!("seal_pre_commit: {}", "start");
 
-    let mut response: types::SealPreCommitResponse = Default::default();
+        let mut response: types::SealPreCommitResponse = Default::default();
 
-    match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
-        Ok(meta) => {
-            if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
-                let pieces = meta
-                    .pieces
-                    .into_iter()
-                    .map(Into::into)
-                    .collect::<Vec<FFIPieceMetadata>>();
+        match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
+            Ok(meta) => {
+                if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                    let pieces = meta
+                        .pieces
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<FFIPieceMetadata>>();
 
-                response.status_code = FCPResponseStatus::FCPNoError;
-                response.comm_d = p.comm_d;
-                response.comm_r = p.comm_r;
-                response.pieces_len = pieces.len();
-                response.pieces_ptr = pieces.as_ptr();
-                response.seal_ticket = t.into();
-                response.sector_id = sector_id;
+                    response.status_code = FCPResponseStatus::FCPNoError;
+                    response.comm_d = p.comm_d;
+                    response.comm_r = p.comm_r;
+                    response.pieces_len = pieces.len();
+                    response.pieces_ptr = pieces.as_ptr();
+                    response.seal_ticket = t.into();
+                    response.sector_id = sector_id;
 
-                mem::forget(pieces);
-            } else {
-                response.status_code = FCPResponseStatus::FCPReceiverError;
-                response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+                    mem::forget(pieces);
+                } else {
+                    response.status_code = FCPResponseStatus::FCPReceiverError;
+                    response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+                }
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
             }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("seal_pre_commit: {}", "finish");
+        info!("seal_pre_commit: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Commits a pre-sealed sector to a particular seed. The second step of
@@ -397,46 +402,46 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
     sector_id: u64,
     seal_seed: FFISealSeed,
 ) -> *mut types::SealCommitResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("seal_commit: {}", "start");
+        info!("seal_commit: {}", "start");
 
-    let mut response: types::SealCommitResponse = Default::default();
+        let mut response: types::SealCommitResponse = Default::default();
 
-    match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
-        Ok(meta) => {
-            let pieces = meta
-                .pieces
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<FFIPieceMetadata>>();
+        match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
+            Ok(meta) => {
+                let pieces = meta
+                    .pieces
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<FFIPieceMetadata>>();
 
-            let proof = meta.proof.clone();
+                let proof = meta.proof.clone();
 
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.comm_d = meta.comm_d;
-            response.comm_r = meta.comm_r;
-            response.pieces_len = pieces.len();
-            response.pieces_ptr = pieces.as_ptr();
-            response.proofs_len = proof.len();
-            response.proofs_ptr = proof.as_ptr();
-            response.seal_seed = meta.seed.into();
-            response.seal_ticket = meta.ticket.into();
-            response.sector_id = sector_id;
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.comm_d = meta.comm_d;
+                response.comm_r = meta.comm_r;
+                response.pieces_len = pieces.len();
+                response.pieces_ptr = pieces.as_ptr();
+                response.proofs_len = proof.len();
+                response.proofs_ptr = proof.as_ptr();
+                response.seal_seed = meta.seed.into();
+                response.seal_ticket = meta.ticket.into();
+                response.sector_id = sector_id;
 
-            mem::forget(proof);
-            mem::forget(pieces);
+                mem::forget(proof);
+                mem::forget(pieces);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("seal_commit: {}", "finish");
+        info!("seal_commit: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Resumes pre-committing of a sector which was previously paused. Produces an
@@ -448,45 +453,45 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
 ) -> *mut types::ResumeSealPreCommitResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("resume_seal_pre_commit: {}", "start");
+        info!("resume_seal_pre_commit: {}", "start");
 
-    let mut response: types::ResumeSealPreCommitResponse = Default::default();
+        let mut response: types::ResumeSealPreCommitResponse = Default::default();
 
-    match (*ptr).resume_seal_pre_commit(sector_id.into()) {
-        Ok(meta) => {
-            if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
-                let pieces = meta
-                    .pieces
-                    .into_iter()
-                    .map(Into::into)
-                    .collect::<Vec<FFIPieceMetadata>>();
+        match (*ptr).resume_seal_pre_commit(sector_id.into()) {
+            Ok(meta) => {
+                if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                    let pieces = meta
+                        .pieces
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<FFIPieceMetadata>>();
 
-                response.status_code = FCPResponseStatus::FCPNoError;
-                response.comm_d = p.comm_d;
-                response.comm_r = p.comm_r;
-                response.pieces_len = pieces.len();
-                response.pieces_ptr = pieces.as_ptr();
-                response.seal_ticket = t.into();
-                response.sector_id = sector_id;
+                    response.status_code = FCPResponseStatus::FCPNoError;
+                    response.comm_d = p.comm_d;
+                    response.comm_r = p.comm_r;
+                    response.pieces_len = pieces.len();
+                    response.pieces_ptr = pieces.as_ptr();
+                    response.seal_ticket = t.into();
+                    response.sector_id = sector_id;
 
-                mem::forget(pieces);
-            } else {
-                response.status_code = FCPResponseStatus::FCPReceiverError;
-                response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+                    mem::forget(pieces);
+                } else {
+                    response.status_code = FCPResponseStatus::FCPReceiverError;
+                    response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+                }
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
             }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("resume_seal_pre_commit: {}", "finish");
+        info!("resume_seal_pre_commit: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Resumes committing of a sector which was previously paused. Produces an
@@ -498,37 +503,37 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
 ) -> *mut types::ResumeSealCommitResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("resume_seal_commit: {}", "start");
+        info!("resume_seal_commit: {}", "start");
 
-    let mut response: types::ResumeSealCommitResponse = Default::default();
+        let mut response: types::ResumeSealCommitResponse = Default::default();
 
-    match (*ptr).resume_seal_commit(sector_id.into()) {
-        Ok(meta) => {
-            let ffi_meta: FFISealedSectorMetadata = meta.into();
+        match (*ptr).resume_seal_commit(sector_id.into()) {
+            Ok(meta) => {
+                let ffi_meta: FFISealedSectorMetadata = meta.into();
 
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.comm_d = ffi_meta.comm_d;
-            response.comm_r = ffi_meta.comm_r;
-            response.pieces_len = ffi_meta.pieces_len;
-            response.pieces_ptr = ffi_meta.pieces_ptr;
-            response.proofs_len = ffi_meta.proofs_len;
-            response.proofs_ptr = ffi_meta.proofs_ptr;
-            response.seal_seed = ffi_meta.seal_seed;
-            response.seal_ticket = ffi_meta.seal_ticket;
-            response.sector_id = ffi_meta.sector_id;
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.comm_d = ffi_meta.comm_d;
+                response.comm_r = ffi_meta.comm_r;
+                response.pieces_len = ffi_meta.pieces_len;
+                response.pieces_ptr = ffi_meta.pieces_ptr;
+                response.proofs_len = ffi_meta.proofs_len;
+                response.proofs_ptr = ffi_meta.proofs_ptr;
+                response.seal_seed = ffi_meta.seal_seed;
+                response.seal_ticket = ffi_meta.seal_ticket;
+                response.sector_id = ffi_meta.sector_id;
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("resume_seal_commit: {}", "finish");
+        info!("resume_seal_commit: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Unseals and returns the bytes associated with the provided piece key.
@@ -538,31 +543,31 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
 ) -> *mut types::ReadPieceFromSealedSectorResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    info!("read_piece_from_sealed_sector: {}", "start");
+        info!("read_piece_from_sealed_sector: {}", "start");
 
-    let mut response: types::ReadPieceFromSealedSectorResponse = Default::default();
+        let mut response: types::ReadPieceFromSealedSectorResponse = Default::default();
 
-    let piece_key = c_str_to_rust_str(piece_key);
+        let piece_key = c_str_to_rust_str(piece_key);
 
-    match (*ptr).read_piece_from_sealed_sector(piece_key.into()) {
-        Ok(piece_bytes) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
-            response.data_ptr = piece_bytes.as_ptr();
-            response.data_len = piece_bytes.len();
-            mem::forget(piece_bytes);
+        match (*ptr).read_piece_from_sealed_sector(piece_key.into()) {
+            Ok(piece_bytes) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.data_ptr = piece_bytes.as_ptr();
+                response.data_len = piece_bytes.len();
+                mem::forget(piece_bytes);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
         }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
 
-    info!("read_piece_from_sealed_sector: {}", "finish");
+        info!("read_piece_from_sealed_sector: {}", "finish");
 
-    raw_ptr(response)
+        raw_ptr(response)
+    })
 }
 
 /// Verifies the output of seal.
@@ -581,21 +586,23 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     pieces_ptr: *const filecoin_proofs_ffi::api::FFIPublicPieceInfo,
     pieces_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    filecoin_proofs_ffi::api::verify_seal(
-        sector_size,
-        comm_r,
-        comm_d,
-        prover_id,
-        ticket,
-        seed,
-        sector_id,
-        proof_ptr,
-        proof_len,
-        pieces_ptr,
-        pieces_len,
-    )
+        filecoin_proofs_ffi::api::verify_seal(
+            sector_size,
+            comm_r,
+            comm_d,
+            prover_id,
+            ticket,
+            seed,
+            sector_id,
+            proof_ptr,
+            proof_len,
+            pieces_ptr,
+            pieces_len,
+        )
+    })
 }
 
 /// Verifies that a proof-of-spacetime is valid.
@@ -613,20 +620,22 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
     proof_ptr: *const u8,
     proof_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifyPoStResponse {
-    init_log();
+    catch_panic_response(|| {
+        init_log();
 
-    filecoin_proofs_ffi::api::verify_post(
-        sector_size,
-        challenge_seed,
-        sector_ids_ptr,
-        sector_ids_len,
-        faulty_sector_ids_ptr,
-        faulty_sector_ids_len,
-        flattened_comm_rs_ptr,
-        flattened_comm_rs_len,
-        proof_ptr,
-        proof_len,
-    )
+        filecoin_proofs_ffi::api::verify_post(
+            sector_size,
+            challenge_seed,
+            sector_ids_ptr,
+            sector_ids_len,
+            faulty_sector_ids_ptr,
+            faulty_sector_ids_len,
+            flattened_comm_rs_ptr,
+            flattened_comm_rs_len,
+            proof_ptr,
+            proof_len,
+        )
+    })
 }
 
 ////////////////////////////////////////////////////////////////////////////////

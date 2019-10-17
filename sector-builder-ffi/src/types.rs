@@ -4,7 +4,10 @@ use std::ptr;
 
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
-use ffi_toolkit::{free_c_str, rust_str_to_c_str};
+// `CodeAndMessage` is the trait implemented by `code_and_message_impl`
+use ffi_toolkit::{
+    code_and_message_impl, free_c_str, rust_str_to_c_str, CodeAndMessage, FCPResponseStatus,
+};
 use filecoin_proofs::SectorClass;
 use libc;
 use sector_builder::{
@@ -31,16 +34,6 @@ impl From<SealedSectorHealth> for FFISealedSectorHealth {
             SealedSectorHealth::ErrorMissing => FFISealedSectorHealth::ErrorMissing,
         }
     }
-}
-
-#[repr(C)]
-#[derive(PartialEq, Debug)]
-pub enum FCPResponseStatus {
-    // Don't use FCPSuccess, since that complicates description of 'successful' verification.
-    FCPNoError = 0,
-    FCPUnclassifiedError = 1,
-    FCPCallerError = 2,
-    FCPReceiverError = 3,
 }
 
 #[repr(C)]
@@ -93,6 +86,8 @@ impl Default for GeneratePoStResponse {
     }
 }
 
+code_and_message_impl!(GeneratePoStResponse);
+
 // err_code_and_msg accepts an Error struct and produces a tuple of response
 // status code and a pointer to a C string, both of which can be used to set
 // fields in a response struct to be returned from an FFI call.
@@ -139,6 +134,8 @@ impl Default for InitSectorBuilderResponse {
     }
 }
 
+code_and_message_impl!(InitSectorBuilderResponse);
+
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct ResumeSealPreCommitResponse {
@@ -169,6 +166,8 @@ impl Default for ResumeSealPreCommitResponse {
         }
     }
 }
+
+code_and_message_impl!(ResumeSealPreCommitResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -210,6 +209,8 @@ impl Default for ResumeSealCommitResponse {
     }
 }
 
+code_and_message_impl!(ResumeSealCommitResponse);
+
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct SealPreCommitResponse {
@@ -240,6 +241,8 @@ impl Default for SealPreCommitResponse {
         }
     }
 }
+
+code_and_message_impl!(SealPreCommitResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -281,6 +284,8 @@ impl Default for SealCommitResponse {
     }
 }
 
+code_and_message_impl!(SealCommitResponse);
+
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct AddPieceResponse {
@@ -298,6 +303,8 @@ impl Default for AddPieceResponse {
         }
     }
 }
+
+code_and_message_impl!(AddPieceResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -319,6 +326,8 @@ impl Default for ReadPieceFromSealedSectorResponse {
     }
 }
 
+code_and_message_impl!(ReadPieceFromSealedSectorResponse);
+
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct SealAllStagedSectorsResponse {
@@ -338,6 +347,8 @@ impl Default for SealAllStagedSectorsResponse {
         }
     }
 }
+
+code_and_message_impl!(SealAllStagedSectorsResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -407,6 +418,8 @@ impl Default for GetSealStatusResponse {
         }
     }
 }
+
+code_and_message_impl!(GetSealStatusResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -493,6 +506,8 @@ impl Default for GetSealedSectorsResponse {
     }
 }
 
+code_and_message_impl!(GetSealedSectorsResponse);
+
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct GetStagedSectorsResponse {
@@ -513,6 +528,8 @@ impl Default for GetStagedSectorsResponse {
         }
     }
 }
+
+code_and_message_impl!(GetStagedSectorsResponse);
 
 #[repr(C)]
 pub struct FFISectorClass {

@@ -33,6 +33,7 @@ pub enum SectorAccessProto {
 pub struct DiskManager {
     staging_path: PathBuf,
     sealed_path: PathBuf,
+    cache_root: PathBuf,
 
     // A sector ID presentation with a defined protocol
     sector_access_proto: SectorAccessProto,
@@ -53,6 +54,18 @@ impl SectorManager for DiskManager {
 
     fn staged_sector_path(&self, access: &str) -> PathBuf {
         sector_path(&self.staging_path, access)
+    }
+
+    fn ensure_cache_dir(&self, sector_id: SectorId) -> Result<PathBuf, SectorManagerErr> {
+        let mut p: PathBuf = Default::default();
+        p.push(&self.cache_root);
+        p.push(format!("sector-{:0>30}", u64::from(sector_id)));
+
+        create_dir_all(&p)
+            .map_err(|err| {
+                SectorManagerErr::ReceiverError(format!("could not create cache dir: {:?}", err))
+            })
+            .map(|_| p)
     }
 
     fn new_sealed_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr> {
@@ -348,10 +361,11 @@ impl SectorStore for ConcreteSectorStore {
     }
 }
 
-pub fn new_sector_store(
+pub fn new_sector_store<P: AsRef<Path>>(
     sector_class: SectorClass,
-    sealed_sector_dir: impl AsRef<Path>,
-    staged_sector_dir: impl AsRef<Path>,
+    sealed_sector_dir: P,
+    staged_sector_dir: P,
+    cache_root: P,
 ) -> ConcreteSectorStore {
     // By default, support on-000000000000-dddddddddd format
     let default_access_proto = SectorAccessProto::Original(0);
@@ -359,6 +373,7 @@ pub fn new_sector_store(
     let manager = Box::new(DiskManager {
         staging_path: staged_sector_dir.as_ref().to_owned(),
         sealed_path: sealed_sector_dir.as_ref().to_owned(),
+        cache_root: cache_root.as_ref().to_owned(),
         sector_access_proto: default_access_proto,
         sector_segment_id: 0u32,
     });
@@ -420,6 +435,7 @@ pub mod tests {
     fn create_sector_store(sector_class: SectorClass) -> impl SectorStore {
         let staging_path = tempfile::tempdir().unwrap().path().to_owned();
         let sealed_path = tempfile::tempdir().unwrap().path().to_owned();
+        let cache_root = tempfile::tempdir().unwrap().path().to_owned();
 
         create_dir_all(&staging_path).expect("failed to create staging dir");
         create_dir_all(&sealed_path).expect("failed to create sealed dir");
@@ -428,6 +444,7 @@ pub mod tests {
             sector_class,
             sealed_path.to_str().unwrap().to_owned(),
             staging_path.to_str().unwrap().to_owned(),
+            cache_root.to_str().unwrap().to_owned(),
         )
     }
 

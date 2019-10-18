@@ -96,9 +96,19 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                     .unwrap();
 
                 let info = if fault_set.contains(&sector.sector_id) {
-                    PrivateReplicaInfo::new_faulty(path_str, sector.comm_r, sector.p_aux.clone())
+                    PrivateReplicaInfo::new_faulty(
+                        path_str,
+                        sector.comm_r,
+                        sector.p_aux.clone(),
+                        sector.cache_dir.clone(),
+                    )
                 } else {
-                    PrivateReplicaInfo::new(path_str, sector.comm_r, sector.p_aux.clone())
+                    PrivateReplicaInfo::new(
+                        path_str,
+                        sector.comm_r,
+                        sector.p_aux.clone(),
+                        sector.cache_dir.clone(),
+                    )
                 };
 
                 replicas.insert(sector.sector_id, info);
@@ -107,8 +117,8 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
 
         GeneratePoStTaskPrototype {
             challenge_seed: *challenge_seed,
-            private_replicas: replicas,
             post_config: self.sector_store.proofs_config().post_config(),
+            private_replicas: replicas,
         }
     }
 
@@ -299,6 +309,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
             };
 
             protos.push(SealTaskPrototype {
+                cache_dir: staged_sector.cache_dir.clone(),
                 piece_lens,
                 porep_config: self.sector_store.proofs_config().porep_config(),
                 seal_ticket,
@@ -403,6 +414,7 @@ impl<T: KeyValueStore, S: SectorStore> SectorMetadataManager<T, S> {
                         .collect();
 
                     let meta = SealedSectorMetadata {
+                        cache_dir: staged_sector.cache_dir.clone(),
                         sector_id: staged_sector.sector_id,
                         sector_access,
                         pieces,

@@ -120,11 +120,14 @@ fn provision_new_staged_sector(
 
     let access = sector_manager.new_staging_sector_access(sector_id)?;
 
+    let cache_dir = sector_manager.ensure_cache_dir(sector_id)?;
+
     let meta = StagedSectorMetadata {
         pieces: Default::default(),
         sector_access: access.clone(),
         sector_id,
         seal_status: SealStatus::Pending,
+        cache_dir,
     };
 
     sector_builder_state

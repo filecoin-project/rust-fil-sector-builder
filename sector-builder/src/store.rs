@@ -61,7 +61,7 @@ pub trait SectorManager: Sync + Send {
     ) -> Result<Vec<u8>, SectorManagerErr>;
 }
 
-pub trait SectorStore: Sync + Send + Sized {
+pub trait SectorStore: Send {
     fn sector_config(&self) -> &dyn SectorConfig;
     fn proofs_config(&self) -> &dyn ProofsConfig;
     fn manager(&self) -> &dyn SectorManager;

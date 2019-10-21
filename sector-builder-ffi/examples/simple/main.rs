@@ -82,11 +82,13 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
     let metadata_dir_a = tempfile::tempdir()?;
     let staging_dir_a = tempfile::tempdir()?;
     let sealed_dir_a = tempfile::tempdir()?;
+    let sector_cache_root_dir_a = tempfile::tempdir()?;
 
     // clone the directory-paths so that we can move them into the child process
     let metadata_dir_a_c = metadata_dir_a.path().clone();
     let staging_dir_a_c = staging_dir_a.path().clone();
     let sealed_dir_a_c = sealed_dir_a.path().clone();
+    let sector_cache_root_dir_a_c = sector_cache_root_dir_a.path().clone();
 
     let prover_id = [1u8; 32];
     let seal_ticket = [1u8; 32];
@@ -126,6 +128,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                 &metadata_dir_a_c,
                 &staging_dir_a_c,
                 &sealed_dir_a_c,
+                &sector_cache_root_dir_a_c,
                 prover_id,
                 500,
                 cfg.sector_class,
@@ -178,6 +181,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         &metadata_dir_a,
         &staging_dir_a,
         &sealed_dir_a,
+        &sector_cache_root_dir_a,
         prover_id,
         500,
         cfg.sector_class,
@@ -262,6 +266,8 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     let staging_dir_b = tempfile::tempdir()?;
     let sealed_dir_a = tempfile::tempdir()?;
     let sealed_dir_b = tempfile::tempdir()?;
+    let sector_cache_root_dir_a = tempfile::tempdir()?;
+    let sector_cache_root_dir_b = tempfile::tempdir()?;
 
     let prover_id = [1u8; 32];
     let seal_ticket = [1u8; 32];
@@ -273,6 +279,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         &metadata_dir_a,
         &staging_dir_a,
         &sealed_dir_a,
+        &sector_cache_root_dir_a,
         prover_id,
         123,
         cfg.sector_class,
@@ -383,6 +390,10 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             (metadata_dir_a.as_ref(), metadata_dir_b.as_ref()),
             (staging_dir_a.as_ref(), staging_dir_b.as_ref()),
             (sealed_dir_a.as_ref(), sealed_dir_b.as_ref()),
+            (
+                sector_cache_root_dir_a.as_ref(),
+                sector_cache_root_dir_b.as_ref(),
+            ),
         ];
 
         for (from, to) in renames {
@@ -397,6 +408,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             &metadata_dir_b,
             &staging_dir_b,
             &sealed_dir_b,
+            &sector_cache_root_dir_b,
             prover_id,
             125,
             cfg.sector_class,

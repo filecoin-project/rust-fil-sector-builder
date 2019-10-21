@@ -290,6 +290,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     metadata_dir: T,
     staging_dir: T,
     sealed_dir: T,
+    sector_cache_root_dir: T,
     prover_id: [u8; 32],
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
@@ -298,11 +299,14 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     let c_metadata_dir = rust_str_to_c_str(metadata_dir.as_ref().to_str().unwrap());
     let c_sealed_dir = rust_str_to_c_str(sealed_dir.as_ref().to_str().unwrap());
     let c_staging_dir = rust_str_to_c_str(staging_dir.as_ref().to_str().unwrap());
+    let c_sector_cache_root_dir =
+        rust_str_to_c_str(sector_cache_root_dir.as_ref().to_str().unwrap());
 
     defer!({
         free_c_str(c_metadata_dir);
         free_c_str(c_sealed_dir);
         free_c_str(c_staging_dir);
+        free_c_str(c_sector_cache_root_dir);
     });
 
     let resp = sector_builder_ffi_init_sector_builder(
@@ -312,6 +316,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
         &mut prover_id.clone(),
         c_sealed_dir,
         c_staging_dir,
+        c_sector_cache_root_dir,
         max_num_staged_sectors,
     );
     defer!(ctx.destructors.push(Box::new(move || {

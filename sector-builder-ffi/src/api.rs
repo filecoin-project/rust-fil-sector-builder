@@ -395,6 +395,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     prover_id: &[u8; 32],
     sealed_sector_dir: *const libc::c_char,
     staged_sector_dir: *const libc::c_char,
+    sector_cache_root_dir: *const libc::c_char,
     max_num_staged_sectors: u8,
 ) -> *mut responses::InitSectorBuilderResponse {
     init_log();
@@ -406,6 +407,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
         *prover_id,
         c_str_to_rust_str(sealed_sector_dir).to_string(),
         c_str_to_rust_str(staged_sector_dir).to_string(),
+        c_str_to_rust_str(sector_cache_root_dir).to_string(),
         max_num_staged_sectors,
     );
 

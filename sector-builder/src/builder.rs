@@ -48,6 +48,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         prover_id: [u8; 32],
         sealed_sector_dir: P,
         staged_sector_dir: P,
+        sector_cache_root: P,
         max_num_staged_sectors: u8,
     ) -> Result<SectorBuilder<R>> {
         ensure_parameter_cache_hydrated(sector_class)?;
@@ -81,7 +82,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
             sector_class,
             sealed_sector_dir,
             staged_sector_dir,
-            metadata_dir,
+            sector_cache_root,
         );
 
         // Build the scheduler's initial state. If available, we
@@ -325,6 +326,7 @@ pub mod tests {
             SectorId::from(0),
             temp_dir.clone(),
             [0u8; 32],
+            temp_dir.clone(),
             temp_dir.clone(),
             temp_dir,
             1,

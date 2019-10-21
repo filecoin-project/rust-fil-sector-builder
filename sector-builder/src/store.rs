@@ -29,8 +29,8 @@ pub trait SectorManager: Sync + Send {
     /// produce the path to the file associated with staged sector access-token
     fn staged_sector_path(&self, access: &str) -> PathBuf;
 
-    /// ensures that the cache directory associated with the sector exists
-    fn ensure_cache_dir(&self, sector_id: SectorId) -> Result<PathBuf, SectorManagerErr>;
+    /// produce the path to the cache associated with sector access-token
+    fn cache_path(&self, access: &str) -> PathBuf;
 
     /// provisions a new sealed sector with the sector_id and reports the corresponding access
     fn new_sealed_sector_access(&self, sector_id: SectorId) -> Result<String, SectorManagerErr>;
@@ -126,9 +126,7 @@ mod tests {
             .new_sealed_sector_access(sector_id)
             .expect("could not create unseal access");
 
-        let cache_dir = mgr
-            .ensure_cache_dir(sector_id)
-            .expect("could not create cache dir");
+        let cache_dir = mgr.cache_path(&sealed_access);
 
         let prover_id = [2u8; 32];
         let seal_ticket = [0u8; 32];
@@ -294,11 +292,7 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let cache_dir = h
-            .store
-            .manager()
-            .ensure_cache_dir(h.sector_id)
-            .expect("could not create cache dir");
+        let cache_dir = h.store.manager().cache_path(&h.sealed_access);
 
         let private_replica_info = vec![
             (

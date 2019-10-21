@@ -1,7 +1,6 @@
 use filecoin_proofs::types::UnpaddedBytesAmount;
 use filecoin_proofs::PersistentAux;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use storage_proofs::sector::SectorId;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -10,7 +9,6 @@ pub struct StagedSectorMetadata {
     pub sector_access: String,
     pub pieces: Vec<PieceMetadata>,
     pub seal_status: SealStatus,
-    pub cache_dir: PathBuf,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Debug)]
@@ -27,7 +25,6 @@ pub struct SealedSectorMetadata {
     pub len: u64,
     pub p_aux: PersistentAux,
     pub seal_ticket: SealTicket,
-    pub cache_dir: PathBuf,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -104,7 +101,6 @@ impl Default for StagedSectorMetadata {
             sector_access: Default::default(),
             pieces: Default::default(),
             seal_status: SealStatus::Pending,
-            cache_dir: Default::default(),
         }
     }
 }

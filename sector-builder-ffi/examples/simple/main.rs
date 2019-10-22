@@ -98,15 +98,6 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
     // use an OS pipe so that we can communicate between processes
     let (mut done_tx, mut done_rx) = pipe_channel::channel();
 
-    // The exclusive file lock which sled acquires on its database is scoped to
-    // a file descriptor pointing to the opened database-file, and the lock is
-    // released when that file descriptor is no longer valid. Instead of
-    // exposing the file descriptor to this test, we instead let the file
-    // descriptor be owned by a process which we control. When we kill the
-    // process, the OS closes its file descriptors which in turn releases the
-    // lock. This behavior would not be exhibited were we to spawn a thread
-    // instead of forking a process.
-    //
     // Motivated by rust-fil-sector-builder/17.
     match nix::unistd::fork() {
         Ok(ForkResult::Parent { child, .. }) => {

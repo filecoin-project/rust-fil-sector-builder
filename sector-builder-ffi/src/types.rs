@@ -5,12 +5,12 @@ use std::ptr;
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
 use ffi_toolkit::{free_c_str, rust_str_to_c_str};
+use filecoin_proofs::SectorClass;
 use libc;
 use sector_builder::{
-    PieceMetadata, SealedSectorHealth, SealedSectorMetadata, SectorBuilderErr, SectorManagerErr,
+    PieceMetadata, SealSeed, SealStatus, SealTicket, SealedSectorHealth, SealedSectorMetadata,
+    SectorBuilderErr, SectorManagerErr,
 };
-
-use crate::api::{FFISealTicket, SectorBuilder};
 
 #[repr(C)]
 #[derive(PartialEq, Debug)]
@@ -46,17 +46,32 @@ pub enum FCPResponseStatus {
 #[repr(C)]
 #[derive(PartialEq, Debug)]
 pub enum FFISealStatus {
-    Sealed = 0,
-    Pending = 1,
-    Failed = 2,
-    Sealing = 3,
-    ReadyForSealing = 4,
-    Paused = 5,
+    AcceptingPieces = 0,
+    Committed = 1,
+    Committing = 2,
+    CommittingPaused = 3,
+    Failed = 4,
+    FullyPacked = 5,
+    PreCommitted = 6,
+    PreCommitting = 7,
+    PreCommittingPaused = 8,
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// GeneratePoSTResult
-//////////////////////
+impl From<SealStatus> for FFISealStatus {
+    fn from(ss: SealStatus) -> Self {
+        match ss {
+            SealStatus::AcceptingPieces => FFISealStatus::AcceptingPieces,
+            SealStatus::Committed(_) => FFISealStatus::Committed,
+            SealStatus::Committing(_, _, _, _) => FFISealStatus::Committing,
+            SealStatus::CommittingPaused(_, _, _, _) => FFISealStatus::CommittingPaused,
+            SealStatus::Failed(_) => FFISealStatus::Failed,
+            SealStatus::PreCommitted(_, _, _) => FFISealStatus::PreCommitted,
+            SealStatus::PreCommitting(_) => FFISealStatus::PreCommitting,
+            SealStatus::PreCommittingPaused(_) => FFISealStatus::PreCommittingPaused,
+            SealStatus::FullyPacked => FFISealStatus::FullyPacked,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -82,7 +97,7 @@ impl Default for GeneratePoStResponse {
 // status code and a pointer to a C string, both of which can be used to set
 // fields in a response struct to be returned from an FFI call.
 pub fn err_code_and_msg(err: &Error) -> (FCPResponseStatus, *const libc::c_char) {
-    use crate::responses::FCPResponseStatus::*;
+    use crate::types::FCPResponseStatus::*;
 
     let msg = CString::new(format!("{}", err)).unwrap();
     let ptr = msg.as_ptr();
@@ -106,10 +121,6 @@ pub fn err_code_and_msg(err: &Error) -> (FCPResponseStatus, *const libc::c_char)
     (FCPUnclassifiedError, ptr)
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// InitSectorBuilderResponse
-/////////////////////////////
-
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct InitSectorBuilderResponse {
@@ -128,21 +139,33 @@ impl Default for InitSectorBuilderResponse {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// ResumeSealSectorResponse
-////////////////////////////
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct ResumeSealPreCommitResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+}
+
+impl Default for ResumeSealPreCommitResponse {
+    fn default() -> ResumeSealPreCommitResponse {
+        ResumeSealPreCommitResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct ResumeSealSectorResponse {
+pub struct ResumeSealCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub meta: FFISealedSectorMetadata,
 }
 
-impl Default for ResumeSealSectorResponse {
-    fn default() -> ResumeSealSectorResponse {
-        ResumeSealSectorResponse {
+impl Default for ResumeSealCommitResponse {
+    fn default() -> ResumeSealCommitResponse {
+        ResumeSealCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             meta: unsafe { mem::zeroed() },
@@ -150,31 +173,39 @@ impl Default for ResumeSealSectorResponse {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// SealSectorResponse
-//////////////////////
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct SealPreCommitResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+}
+
+impl Default for SealPreCommitResponse {
+    fn default() -> SealPreCommitResponse {
+        SealPreCommitResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct SealSectorResponse {
+pub struct SealCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub meta: FFISealedSectorMetadata,
 }
 
-impl Default for SealSectorResponse {
-    fn default() -> SealSectorResponse {
-        SealSectorResponse {
+impl Default for SealCommitResponse {
+    fn default() -> SealCommitResponse {
+        SealCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             meta: unsafe { mem::zeroed() },
         }
     }
 }
-
-///////////////////////////////////////////////////////////////////////////////
-/// AddPieceResponse
-////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -193,10 +224,6 @@ impl Default for AddPieceResponse {
         }
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////
-/// ReadPieceFromSealedSectorResponse
-/////////////////////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -218,10 +245,6 @@ impl Default for ReadPieceFromSealedSectorResponse {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// SealAllStagedSectorsResponse
-////////////////////////////////
-
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct SealAllStagedSectorsResponse {
@@ -241,10 +264,6 @@ impl Default for SealAllStagedSectorsResponse {
         }
     }
 }
-
-///////////////////////////////////////////////////////////////////////////////
-/// GetSealStatusResponse
-/////////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -275,32 +294,14 @@ pub struct FFIPieceMetadata {
     pub piece_key: *const libc::c_char,
     pub num_bytes: u64,
     pub comm_p: [u8; 32],
-    pub piece_inclusion_proof_ptr: *const u8,
-    pub piece_inclusion_proof_len: libc::size_t,
 }
 
 impl From<PieceMetadata> for FFIPieceMetadata {
     fn from(meta: PieceMetadata) -> Self {
-        let (len, ptr) = match &meta.piece_inclusion_proof {
-            Some(proof) => {
-                let buf = proof.clone();
-
-                let len = buf.len();
-                let ptr = buf.as_ptr();
-
-                mem::forget(buf);
-
-                (len, ptr)
-            }
-            None => (0, ptr::null()),
-        };
-
         FFIPieceMetadata {
             piece_key: rust_str_to_c_str(meta.piece_key.to_string()),
             num_bytes: meta.num_bytes.into(),
-            comm_p: meta.comm_p.unwrap_or([0; 32]),
-            piece_inclusion_proof_len: len,
-            piece_inclusion_proof_ptr: ptr,
+            comm_p: meta.comm_p,
         }
     }
 }
@@ -328,10 +329,6 @@ impl Default for GetSealStatusResponse {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// FFIStagedSectorMetadata
-///////////////////////////
-
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct FFIStagedSectorMetadata {
@@ -339,17 +336,10 @@ pub struct FFIStagedSectorMetadata {
     pub sector_id: u64,
     pub pieces_len: libc::size_t,
     pub pieces_ptr: *const FFIPieceMetadata,
-
-    // must be one of: Pending, Failed, Sealing
     pub seal_status_code: FFISealStatus,
-
     // if sealing failed - here's the error
     pub seal_error_msg: *const libc::c_char,
 }
-
-///////////////////////////////////////////////////////////////////////////////
-/// FFISealedSectorMetadata
-///////////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -378,8 +368,8 @@ impl From<SealedSectorMetadata> for FFISealedSectorMetadata {
 
         let sector = FFISealedSectorMetadata {
             seal_ticket: FFISealTicket {
-                block_height: meta.seal_ticket.block_height,
-                ticket_bytes: meta.seal_ticket.ticket_bytes,
+                block_height: meta.ticket.block_height,
+                ticket_bytes: meta.ticket.ticket_bytes,
             },
             comm_d: meta.comm_d,
             comm_r: meta.comm_r,
@@ -398,10 +388,6 @@ impl From<SealedSectorMetadata> for FFISealedSectorMetadata {
         sector
     }
 }
-
-///////////////////////////////////////////////////////////////////////////////
-/// GetSealedSectorsResponse
-////////////////////////////
 
 #[repr(C)]
 #[derive(DropStructMacro)]
@@ -423,10 +409,6 @@ impl Default for GetSealedSectorsResponse {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// GetStagedSectorsResponse
-////////////////////////////
-
 #[repr(C)]
 #[derive(DropStructMacro)]
 pub struct GetStagedSectorsResponse {
@@ -444,6 +426,91 @@ impl Default for GetStagedSectorsResponse {
             error_msg: ptr::null(),
             sectors_len: 0,
             sectors_ptr: ptr::null(),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct FFISectorClass {
+    sector_size: u64,
+    porep_proof_partitions: u8,
+}
+
+impl From<FFISectorClass> for SectorClass {
+    fn from(fsc: FFISectorClass) -> Self {
+        let FFISectorClass {
+            sector_size,
+            porep_proof_partitions,
+        } = fsc;
+
+        SectorClass(
+            filecoin_proofs::SectorSize(sector_size),
+            filecoin_proofs::PoRepProofPartitions(porep_proof_partitions),
+        )
+    }
+}
+
+pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
+
+/// Filedescriptor, that does not drop the file descriptor when dropped.
+pub struct FileDescriptorRef(nodrop::NoDrop<std::fs::File>);
+
+impl FileDescriptorRef {
+    #[cfg(not(target_os = "windows"))]
+    pub unsafe fn new(raw: std::os::unix::io::RawFd) -> Self {
+        use std::os::unix::io::FromRawFd;
+        FileDescriptorRef(nodrop::NoDrop::new(std::fs::File::from_raw_fd(raw)))
+    }
+}
+
+impl std::io::Read for FileDescriptorRef {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+#[repr(C)]
+pub struct FFISealSeed {
+    /// the height at which we chose the ticket
+    pub block_height: u64,
+
+    /// bytes of the minimum ticket chosen from a block with given height
+    pub ticket_bytes: [u8; 32],
+}
+
+impl From<FFISealSeed> for SealSeed {
+    fn from(fss: FFISealSeed) -> Self {
+        match fss {
+            FFISealSeed {
+                block_height,
+                ticket_bytes,
+            } => sector_builder::SealSeed {
+                block_height,
+                ticket_bytes,
+            },
+        }
+    }
+}
+
+#[repr(C)]
+pub struct FFISealTicket {
+    /// the height at which we chose the ticket
+    pub block_height: u64,
+
+    /// bytes of the minimum ticket chosen from a block with given height
+    pub ticket_bytes: [u8; 32],
+}
+
+impl From<FFISealTicket> for SealTicket {
+    fn from(fst: FFISealTicket) -> Self {
+        match fst {
+            FFISealTicket {
+                block_height,
+                ticket_bytes,
+            } => sector_builder::SealTicket {
+                block_height,
+                ticket_bytes,
+            },
         }
     }
 }

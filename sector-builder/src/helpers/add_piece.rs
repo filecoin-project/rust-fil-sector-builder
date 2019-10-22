@@ -1,8 +1,5 @@
 use std::iter::Iterator;
 
-use filecoin_proofs::pieces::{
-    get_aligned_source, get_piece_alignment, sum_piece_bytes_with_alignment, PieceAlignment,
-};
 use filecoin_proofs::types::UnpaddedBytesAmount;
 
 use crate::disk_backed_storage::SectorManager;
@@ -10,17 +7,19 @@ use crate::error::*;
 use crate::metadata::{self, SealStatus, SecondsSinceEpoch, StagedSectorMetadata};
 use crate::state::SectorBuilderState;
 use crate::SectorStore;
+use std::fs::OpenOptions;
+use std::io::Read;
 use storage_proofs::sector::SectorId;
 
-pub fn add_piece(
+pub fn add_piece<U: Read>(
     sector_store: &SectorStore,
     mut sector_builder_state: &mut SectorBuilderState,
     piece_bytes_amount: u64,
     piece_key: String,
-    piece_file: impl std::io::Read,
+    piece_file: U,
     _store_until: SecondsSinceEpoch,
 ) -> Result<SectorId> {
-    let sector_mgr = sector_store.manager();
+    let mgr = sector_store.manager();
     let sector_max = sector_store.sector_config().max_unsealed_bytes_per_sector;
 
     let piece_bytes_len = UnpaddedBytesAmount(piece_bytes_amount);
@@ -30,7 +29,7 @@ pub fn add_piece(
             .staged
             .sectors
             .iter()
-            .filter(|(_, v)| v.seal_status == SealStatus::Pending)
+            .filter(|(_, v)| v.seal_status == SealStatus::AcceptingPieces)
             .map(|(_, v)| (*v).clone())
             .collect();
 
@@ -39,41 +38,66 @@ pub fn add_piece(
 
     let dest_sector_id = opt_dest_sector_id
         .ok_or(())
-        .or_else(|_| provision_new_staged_sector(sector_mgr, &mut sector_builder_state))?;
+        .or_else(|_| provision_new_staged_sector(mgr, &mut sector_builder_state))?;
 
-    if let Some(s) = sector_builder_state.staged.sectors.get_mut(&dest_sector_id) {
-        let piece_lengths: Vec<_> = s.pieces.iter().map(|p| p.num_bytes).collect();
+    let ssm = sector_builder_state
+        .staged
+        .sectors
+        .get_mut(&dest_sector_id)
+        .ok_or_else(|| format_err!("unable to retrieve sector from state-map"))?;
 
-        let (expected_num_bytes_written, mut chain) =
-            get_aligned_source(piece_file, &piece_lengths, piece_bytes_len);
+    let (pipe_reader, pipe_writer) = os_pipe::pipe()?;
 
-        sector_store
-            .manager()
-            .write_and_preprocess(&s.sector_access, &mut chain)
-            .map_err(Into::into)
-            .and_then(|num_bytes_written| {
-                if num_bytes_written != expected_num_bytes_written {
-                    Err(
-                        err_inc_write(u64::from(num_bytes_written), u64::from(piece_bytes_len))
-                            .into(),
-                    )
-                } else {
-                    Ok(s.sector_id)
-                }
-            })
-            .map(|sector_id| {
-                s.pieces.push(metadata::PieceMetadata {
-                    piece_key,
-                    num_bytes: piece_bytes_len,
-                    comm_p: None,
-                    piece_inclusion_proof: None,
-                });
+    let tee_reader = tee::TeeReader::new(piece_file, pipe_writer);
 
-                sector_id
-            })
-    } else {
-        Err(err_unrecov("unable to retrieve sector from state-map").into())
+    let mut staged_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(mgr.staged_sector_path(&ssm.sector_access))?;
+
+    let piece_lens_in_staged_sector_without_alignment = ssm
+        .pieces
+        .iter()
+        .map(|p| p.num_bytes)
+        .collect::<Vec<UnpaddedBytesAmount>>();
+
+    let total_bytes_written = filecoin_proofs::add_piece(
+        tee_reader,
+        &mut staged_file,
+        piece_bytes_len,
+        &piece_lens_in_staged_sector_without_alignment,
+    )?;
+
+    // sanity check to ensure we've got alignment stuff correct
+    {
+        let sum_piece_lens_in_sector_with_alignment =
+            filecoin_proofs::pieces::sum_piece_bytes_with_alignment(
+                &piece_lens_in_staged_sector_without_alignment,
+            );
+
+        let alignment_for_new_piece = filecoin_proofs::pieces::get_piece_alignment(
+            sum_piece_lens_in_sector_with_alignment,
+            piece_bytes_len,
+        );
+
+        assert_eq!(
+            total_bytes_written,
+            alignment_for_new_piece.left_bytes
+                + alignment_for_new_piece.right_bytes
+                + piece_bytes_len,
+            "incorrect alignment bytes written to staged sector-file"
+        );
     }
+
+    let piece_info = filecoin_proofs::generate_piece_commitment(pipe_reader, piece_bytes_len)?;
+
+    ssm.pieces.push(metadata::PieceMetadata {
+        piece_key,
+        comm_p: piece_info.commitment,
+        num_bytes: piece_bytes_len,
+    });
+
+    Ok(ssm.sector_id)
 }
 
 // Given a list of staged sectors which are accepting data, return the
@@ -94,11 +118,17 @@ fn compute_destination_sector_id(
             .find(move |staged_sector| {
                 let piece_lengths: Vec<_> =
                     staged_sector.pieces.iter().map(|p| p.num_bytes).collect();
-                let preceding_piece_bytes = sum_piece_bytes_with_alignment(&piece_lengths);
-                let PieceAlignment {
+
+                let preceding_piece_bytes =
+                    filecoin_proofs::pieces::sum_piece_bytes_with_alignment(&piece_lengths);
+
+                let filecoin_proofs::pieces::PieceAlignment {
                     left_bytes,
                     right_bytes,
-                } = get_piece_alignment(preceding_piece_bytes, num_bytes_in_piece);
+                } = filecoin_proofs::pieces::get_piece_alignment(
+                    preceding_piece_bytes,
+                    num_bytes_in_piece,
+                );
                 preceding_piece_bytes + left_bytes + num_bytes_in_piece + right_bytes
                     <= max_bytes_per_sector
             })
@@ -125,7 +155,7 @@ fn provision_new_staged_sector(
         pieces: Default::default(),
         sector_access: access.clone(),
         sector_id,
-        seal_status: SealStatus::Pending,
+        seal_status: SealStatus::AcceptingPieces,
     };
 
     sector_builder_state
@@ -148,15 +178,13 @@ mod tests {
         sealed_sector_a.pieces.push(PieceMetadata {
             piece_key: String::from("x"),
             num_bytes: UnpaddedBytesAmount(508),
-            comm_p: None,
-            piece_inclusion_proof: None,
+            comm_p: [0u8; 32],
         });
 
         sealed_sector_a.pieces.push(PieceMetadata {
             piece_key: String::from("x"),
             num_bytes: UnpaddedBytesAmount(254),
-            comm_p: None,
-            piece_inclusion_proof: None,
+            comm_p: [0u8; 32],
         });
 
         let mut sealed_sector_b: StagedSectorMetadata = Default::default();
@@ -164,8 +192,7 @@ mod tests {
         sealed_sector_b.pieces.push(PieceMetadata {
             piece_key: String::from("x"),
             num_bytes: UnpaddedBytesAmount(508),
-            comm_p: None,
-            piece_inclusion_proof: None,
+            comm_p: [0u8; 32],
         });
 
         let staged_sectors = vec![sealed_sector_a.clone(), sealed_sector_b.clone()];

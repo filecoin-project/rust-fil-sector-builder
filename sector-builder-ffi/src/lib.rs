@@ -3,6 +3,5 @@
 #[macro_use]
 extern crate log;
 
-mod responses;
-
 pub mod api;
+pub mod types;

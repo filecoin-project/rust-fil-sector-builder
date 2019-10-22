@@ -185,14 +185,29 @@ pub(crate) unsafe fn generate_piece_commitment(
     (*resp).comm_p.clone()
 }
 
-pub(crate) unsafe fn resume_seal_sector(
+pub(crate) unsafe fn resume_seal_pre_commit(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) {
+    let resp = sector_builder_ffi_resume_seal_pre_commit(ptr, sector_id);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_resume_seal_pre_commit_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+}
+
+pub(crate) unsafe fn resume_seal_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
 ) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let resp = sector_builder_ffi_resume_seal_sector(ptr, sector_id);
+    let resp = sector_builder_ffi_resume_seal_commit(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_resume_seal_sector_response(resp);
+        sector_builder_ffi_destroy_resume_seal_commit_response(resp);
     })));
 
     if (*resp).status_code != 0 {
@@ -202,15 +217,31 @@ pub(crate) unsafe fn resume_seal_sector(
     (*resp).meta
 }
 
-pub(crate) unsafe fn seal_sector(
+pub(crate) unsafe fn seal_pre_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-    seal_ticket: sector_builder_ffi_FFISealTicket,
-) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let resp = sector_builder_ffi_seal_sector(ptr, sector_id, seal_ticket);
+    ticket: sector_builder_ffi_FFISealTicket,
+) {
+    let resp = sector_builder_ffi_seal_pre_commit(ptr, sector_id, ticket);
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_seal_sector_response(resp);
+        sector_builder_ffi_destroy_seal_pre_commit_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+    }
+}
+
+pub(crate) unsafe fn seal_commit(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    seed: sector_builder_ffi_FFISealSeed,
+) -> sector_builder_ffi_FFISealedSectorMetadata {
+    let resp = sector_builder_ffi_seal_commit(ptr, sector_id, seed);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_seal_commit_response(resp);
     })));
 
     if (*resp).status_code != 0 {
@@ -225,10 +256,12 @@ pub(crate) unsafe fn verify_seal(
     sector_size: u64,
     sector_id: u64,
     ticket: [u8; 32],
+    seed: [u8; 32],
     proof: &[u8],
     comm_r: [u8; 32],
     comm_d: [u8; 32],
     prover_id: [u8; 32],
+    piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
 ) -> bool {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
@@ -237,8 +270,11 @@ pub(crate) unsafe fn verify_seal(
         &mut prover_id.clone(),
         sector_id,
         &mut ticket.clone(),
+        &mut seed.clone(),
         proof.as_ptr(),
         proof.len(),
+        piece_info.as_ptr(),
+        piece_info.len(),
     );
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_verify_seal_response(resp);
@@ -259,30 +295,6 @@ pub(crate) unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_Secto
     sector_builder_ffi_destroy_sector_builder(p);
     p = ptr::null_mut();
     assert!(p.is_null());
-}
-
-pub(crate) unsafe fn verify_piece_inclusion_proof(
-    sector_size: u64,
-    comm_d: [u8; 32],
-    comm_p: [u8; 32],
-    proof: &[u8],
-    piece_len: usize,
-) -> bool {
-    let resp = sector_builder_ffi_verify_piece_inclusion_proof(
-        &mut comm_d.clone(),
-        &mut comm_p.clone(),
-        proof.as_ptr(),
-        proof.len(),
-        piece_len as u64,
-        sector_size as u64,
-    );
-    defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg));
-    }
-
-    (*resp).is_valid.clone()
 }
 
 pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(

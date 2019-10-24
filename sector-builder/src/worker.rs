@@ -67,6 +67,7 @@ type SealPreCommitCallback = Box<dyn FnOnce(SealPreCommitResult) + Send>;
 
 type SealCommitCallback = Box<dyn FnOnce(SealCommitResult) + Send>;
 
+#[allow(clippy::large_enum_variant)]
 pub enum WorkerTask {
     GeneratePoSt {
         challenge_seed: [u8; 32],

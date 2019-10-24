@@ -376,18 +376,17 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
         // WARNING: Holding this data structure in memory is a stopgap until the SealPreCommitOutput
         // struct is serializable (which requires a working merkle tree cache). This method will
         // panic if you call it for resuming a paused commit after the node is restarted.
-        let t_aux = self.temporary_aux.remove(&key).expect(&format!(
-            "missing pre-commit output for sector with id {}",
-            sector_id
-        ));
+        let t_aux = self.temporary_aux.remove(&key).unwrap_or_else(|| {
+            panic!("missing pre-commit output for sector with id {}", sector_id)
+        });
 
         let out = Ok(SealCommitTaskPrototype {
             cache_dir: self.sector_store.manager().cache_path(&meta.sector_access),
             piece_info: meta.pieces.iter().map(|x| (x.clone()).into()).collect(),
             porep_config: self.sector_store.proofs_config().porep_config,
             pre_commit: SealPreCommitOutput {
-                comm_r: pre_commit.comm_r.clone(),
-                comm_d: pre_commit.comm_d.clone(),
+                comm_r: pre_commit.comm_r,
+                comm_d: pre_commit.comm_d,
                 p_aux: pre_commit.p_aux.clone(),
                 t_aux,
             },
@@ -563,12 +562,12 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
 
                     // combine the piece commitment, piece inclusion proof, and other piece
                     // metadata into a single struct (to be persisted to metadata store)
-                    let pieces = staged_sector.pieces.iter().cloned().collect();
+                    let pieces = staged_sector.pieces.to_vec();
 
                     let meta = SealedSectorMetadata {
                         blake2b_checksum,
-                        comm_d: pre_commit.comm_d.clone(),
-                        comm_r: pre_commit.comm_r.clone(),
+                        comm_d: pre_commit.comm_d,
+                        comm_r: pre_commit.comm_r,
                         len,
                         p_aux: pre_commit.p_aux.clone(),
                         pieces,

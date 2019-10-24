@@ -52,6 +52,7 @@ pub struct PersistablePreCommitOutput {
     pub p_aux: PersistentAux,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum SealStatus {
     Committed(Box<SealedSectorMetadata>),

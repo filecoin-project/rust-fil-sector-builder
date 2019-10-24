@@ -8,7 +8,7 @@ use crate::metadata::{self, SealStatus, SecondsSinceEpoch, StagedSectorMetadata}
 use crate::state::SectorBuilderState;
 use crate::SectorStore;
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use storage_proofs::sector::SectorId;
 
 pub fn add_piece<U: Read>(
@@ -16,7 +16,7 @@ pub fn add_piece<U: Read>(
     mut sector_builder_state: &mut SectorBuilderState,
     piece_bytes_amount: u64,
     piece_key: String,
-    piece_file: U,
+    mut piece_file: U,
     _store_until: SecondsSinceEpoch,
 ) -> Result<SectorId> {
     let mgr = sector_store.manager();
@@ -46,9 +46,21 @@ pub fn add_piece<U: Read>(
         .get_mut(&dest_sector_id)
         .ok_or_else(|| format_err!("unable to retrieve sector from state-map"))?;
 
-    let (pipe_reader, pipe_writer) = os_pipe::pipe()?;
+    // TODO: Buffering the piece completely into memory is awful, but each of
+    // the two function calls (add_piece and generate_piece_commitment) accept a
+    // Read. Given that the piece byte-stream is represented by a Read, we can't
+    // read all of its bytes in one function call and then do the same with the
+    // other w/out putting the bytes into an intermediate buffer. A tee reader
+    // would be appropriate here.
+    let mut backing_buffer = vec![];
+    let mut cursor = Cursor::new(&mut backing_buffer);
 
-    let tee_reader = tee::TeeReader::new(piece_file, pipe_writer);
+    std::io::copy(&mut piece_file, &mut cursor)
+        .map_err(|err| format_err!("unable to copy piece bytes to buffer: {:?}", err))?;
+
+    cursor
+        .seek(SeekFrom::Start(0))
+        .map_err(|err| format_err!("could not seek into buffer after copy: {:?}", err))?;
 
     let mut staged_file = OpenOptions::new()
         .read(true)
@@ -62,11 +74,15 @@ pub fn add_piece<U: Read>(
         .collect::<Vec<UnpaddedBytesAmount>>();
 
     let total_bytes_written = filecoin_proofs::add_piece(
-        tee_reader,
+        &mut cursor,
         &mut staged_file,
         piece_bytes_len,
         &piece_lens_in_staged_sector_without_alignment,
     )?;
+
+    cursor
+        .seek(SeekFrom::Start(0))
+        .map_err(|err| format_err!("could not seek into buffer after add_piece: {:?}", err))?;
 
     // sanity check to ensure we've got alignment stuff correct
     {
@@ -89,7 +105,7 @@ pub fn add_piece<U: Read>(
         );
     }
 
-    let piece_info = filecoin_proofs::generate_piece_commitment(pipe_reader, piece_bytes_len)?;
+    let piece_info = filecoin_proofs::generate_piece_commitment(&mut cursor, piece_bytes_len)?;
 
     ssm.pieces.push(metadata::PieceMetadata {
         piece_key,

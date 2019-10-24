@@ -93,28 +93,6 @@ impl SectorManager {
             .and_then(|n| n)
     }
 
-    pub fn truncate_unsealed(&self, access: &str, size: u64) -> Result<(), SectorManagerErr> {
-        // I couldn't wrap my head around all ths result mapping, so here it is all laid out.
-        match OpenOptions::new()
-            .write(true)
-            .open(self.staged_sector_path(access))
-        {
-            Ok(mut file) => match almost_truncate_to_unpadded_bytes(&mut file, size) {
-                Ok(padded_size) => match file.set_len(padded_size as u64) {
-                    Ok(_) => Ok(()),
-                    Err(err) => Err(SectorManagerErr::ReceiverError(format!("{:?}", err))),
-                },
-                Err(err) => Err(SectorManagerErr::ReceiverError(format!("{:?}", err))),
-            },
-            Err(err) => Err(SectorManagerErr::CallerError(format!("{:?}", err))),
-        }
-    }
-
-    pub fn delete_staging_sector_access(&self, access: &str) -> Result<(), SectorManagerErr> {
-        remove_file(self.staged_sector_path(access))
-            .map_err(|err| SectorManagerErr::CallerError(format!("{:?}", err)))
-    }
-
     pub fn read_raw(
         &self,
         access: &str,

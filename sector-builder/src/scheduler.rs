@@ -317,49 +317,6 @@ impl<T: KeyValueStore, V: 'static + Send + std::io::Read> TaskHandler<T, V> {
 
         should_continue
     }
-
-    //    fn seal_matching<
-    //        P: FnMut(&StagedSectorMetadata) -> bool,
-    //        F: FnOnce(&[SealTaskPrototype]) -> Option<failure::Error>,
-    //    >(
-    //        &mut self,
-    //        done_tx: mpsc::SyncSender<Result<Vec<SealedSectorMetadata>>>,
-    //        seal_ticket: SealTicket,
-    //        predicate: P,
-    //        pre_seal_err_check: F,
-    //    ) {
-    //        panic!("not implemented");
-    //            let r_protos = self.m.create_seal_task_protos(seal_ticket, predicate);
-    //
-    //            match r_protos {
-    //                Ok(protos) => {
-    //                    if let Some(err) = pre_seal_err_check(&protos) {
-    //                        return done_tx.send(Err(err)).expects(FATAL_NOSEND);
-    //                    }
-    //
-    //                    for p in &protos {
-    //                        self.m
-    //                            .commit_sector_to_ticket(p.sector_id, p.seal_ticket.clone());
-    //                    }
-    //
-    //                    let scheduler_tx_c = self.scheduler_tx.clone();
-    //
-    //                    self.worker_tx
-    //                        .send(WorkerTask::from_seal_protos(
-    //                            protos,
-    //                            Box::new(move |output| {
-    //                                scheduler_tx_c
-    //                                    .send(OnSealMultipleComplete(output, done_tx))
-    //                                    .expects(FATAL_NOSEND)
-    //                            }),
-    //                        ))
-    //                        .expects(FATAL_NOSEND);
-    //                }
-    //                Err(err) => {
-    //                    done_tx.send(Err(err)).expects(FATAL_NOSEND);
-    //                }
-    //            }
-    //    }
 }
 
 impl Scheduler {

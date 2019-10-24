@@ -15,6 +15,7 @@ pub(crate) unsafe fn get_sealed_sector(
     sector_id: u64,
 ) -> sector_builder_ffi_FFISealedSectorMetadata {
     let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .find(|ss| ss.sector_id == sector_id)
         .expect(&format!("no sealed sector with id {}", sector_id));
@@ -28,6 +29,7 @@ pub(crate) unsafe fn get_staged_sector(
     sector_id: u64,
 ) -> sector_builder_ffi_FFIStagedSectorMetadata {
     let staged_sector = get_staged_sectors(ctx, ptr)
+        .unwrap()
         .into_iter()
         .find(|ss| ss.sector_id == sector_id)
         .expect(&format!("no sealed sector with id {}", sector_id));
@@ -42,6 +44,7 @@ pub(crate) unsafe fn get_sealed_piece(
     piece_key: &str,
 ) -> sector_builder_ffi_FFIPieceMetadata {
     let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .find(|ss| ss.sector_id == sector_id)
         .expect(&format!("no sealed sector with id={}", sector_id));
@@ -64,6 +67,7 @@ pub(crate) unsafe fn get_sector_info(
     ptr: *mut sector_builder_ffi_SectorBuilder,
 ) -> Vec<PoStSectorInfo> {
     get_sealed_sectors(&mut ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .map(|ss| PoStSectorInfo {
             sector_id: ss.sector_id,
@@ -152,7 +156,8 @@ pub(crate) unsafe fn poll_for_sector_sealing_status(
                 _ => (),
             };
 
-            let status = get_seal_status(&mut Default::default(), sector_builder, sector_id);
+            let status =
+                get_seal_status(&mut Default::default(), sector_builder, sector_id).unwrap();
 
             if status == target_status {
                 let _ = result_tx.send(PollComplete::Success(sector_id)).unwrap();

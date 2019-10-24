@@ -124,14 +124,15 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                 500,
                 cfg.sector_class,
                 cfg.max_num_staged_sectors,
-            );
+            )
+            .unwrap();
 
             // add a piece which completely fills a staged sector
             {
                 let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
                 assert_eq!(
                     501,
-                    add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000)
+                    add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
                 );
             }
 
@@ -177,13 +178,14 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         500,
         cfg.sector_class,
         cfg.max_num_staged_sectors,
-    );
+    )
+    .unwrap();
     defer!(sector_builder_ffi_destroy_sector_builder(ptr));
 
     // resume sealing for all paused sectors
     {
         let mut n = 0;
-        for s in get_staged_sectors(&mut ctx, ptr).iter() {
+        for s in get_staged_sectors(&mut ctx, ptr).unwrap().iter() {
             if s.seal_status_code == sector_builder_ffi_FFISealStatus_PreCommittingPaused {
                 resume_seal_pre_commit_nonblocking(ptr, s.sector_id);
                 n = n + 1;
@@ -243,7 +245,8 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                 sealed_sector.comm_d,
                 prover_id,
                 &public_piece_info,
-            ),
+            )
+            .unwrap(),
             "seal verification failed for sector with id 501"
         );
     }
@@ -305,12 +308,13 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         123,
         cfg.sector_class,
         cfg.max_num_staged_sectors,
-    );
+    )
+    .unwrap();
 
     // verify that we have neither sealed nor staged sectors yet
     {
-        let sealed_sectors = get_sealed_sectors(&mut ctx, a_ptr, false);
-        let staged_sectors = get_staged_sectors(&mut ctx, a_ptr);
+        let sealed_sectors = get_sealed_sectors(&mut ctx, a_ptr, false).unwrap();
+        let staged_sectors = get_staged_sectors(&mut ctx, a_ptr).unwrap();
         assert_eq!(0, sealed_sectors.len());
         assert_eq!(0, staged_sectors.len());
     }
@@ -320,7 +324,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         let MakePiece { file, bytes, key } = make_piece(cfg.first_piece_bytes);
         assert_eq!(
             124,
-            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
         );
     }
 
@@ -349,6 +353,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             third_piece_bytes.len(),
             5000000
         )
+        .unwrap()
     );
 
     // this sector will have its remaining space reduced to zero
@@ -365,7 +370,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         let MakePiece { file, bytes, key } = make_piece(cfg.third_piece_bytes);
         assert_eq!(
             124,
-            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000)
+            add_piece(&mut ctx, a_ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
         );
     }
 
@@ -380,7 +385,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     // get staged sector metadata and verify that we've now got two staged
     // sectors
     {
-        let staged_sectors = get_staged_sectors(&mut ctx, a_ptr);
+        let staged_sectors = get_staged_sectors(&mut ctx, a_ptr).unwrap();
         assert_eq!(2, staged_sectors.len());
     }
 
@@ -485,13 +490,15 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             cfg.sector_class,
             cfg.max_num_staged_sectors,
         )
+        .unwrap()
     };
     defer!(sector_builder_ffi_destroy_sector_builder(b_ptr));
 
     // after sealing, read the bytes (triggering unseal) and compare with what
     // we've added to the sector
     {
-        let unsealed_bytes = read_piece_from_sealed_sector(&mut ctx, b_ptr, &third_piece_key);
+        let unsealed_bytes =
+            read_piece_from_sealed_sector(&mut ctx, b_ptr, &third_piece_key).unwrap();
         assert_eq!(
             format!("{:x?}", third_piece_bytes),
             format!("{:x?}", unsealed_bytes)
@@ -523,7 +530,8 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_d,
                 prover_id,
                 &public_piece_info,
-            ),
+            )
+            .unwrap(),
             "seal verification failed for sector with id 124"
         );
     }
@@ -553,7 +561,8 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_d,
                 prover_id,
                 &public_piece_info
-            ),
+            )
+            .unwrap(),
             "seal verification failed for sector with id 125"
         );
     }
@@ -570,7 +579,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             format!("{:x?}", get_sealed_piece(&mut ctx, b_ptr, 125, &third_piece_key).comm_p),
             format!(
                 "{:x?}",
-                generate_piece_commitment(&mut ctx, third_piece_file.as_file_mut(), third_piece_bytes.len())
+                generate_piece_commitment(&mut ctx, third_piece_file.as_file_mut(), third_piece_bytes.len()).unwrap()
             ),
             "client (generate_piece_commitment) and server (during seal) generated different piece commitments"
         );
@@ -578,7 +587,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
     // get sealed sectors w/health checks
     {
-        assert_eq!(2, get_sealed_sectors(&mut ctx, b_ptr, true).len());
+        assert_eq!(2, get_sealed_sectors(&mut ctx, b_ptr, true).unwrap().len());
 
         assert_eq!(
             get_sealed_sector(&mut ctx, b_ptr, 125).health,
@@ -609,10 +618,10 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     {
         let cseed = [1u8; 32];
         let p_set = ProvingSet::new(get_sector_info(&mut ctx, b_ptr));
-        let proof = generate_post(b_ptr, cseed, &p_set);
+        let proof = generate_post(b_ptr, cseed, &p_set).unwrap();
 
         assert!(
-            verify_post(cfg.sector_class.sector_size, cseed, &p_set, &proof),
+            verify_post(cfg.sector_class.sector_size, cseed, &p_set, &proof).unwrap(),
             "PoSt was invalid"
         );
     }

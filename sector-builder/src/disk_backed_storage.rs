@@ -1,8 +1,8 @@
-use std::fs::{create_dir_all, remove_file, File, OpenOptions};
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use filecoin_proofs::fr32::{almost_truncate_to_unpadded_bytes, target_unpadded_bytes};
+use filecoin_proofs::fr32::target_unpadded_bytes;
 use filecoin_proofs::types::*;
 
 use crate::error::SectorManagerErr;

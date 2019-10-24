@@ -314,7 +314,7 @@ commands:
   restore_parameter_cache:
     steps:
       - restore_cache:
-          key: v15-proof-params-{{ arch }}
+          key: v15b-proof-params-{{ arch }}
           paths:
             - /tmp/filecoin-parameter-cache
   restore_rust_cache:
@@ -324,7 +324,7 @@ commands:
   save_parameter_cache:
     steps:
       - save_cache:
-          key: v15-proof-params-{{ arch }}
+          key: v15b-proof-params-{{ arch }}
           paths:
             - /tmp/filecoin-parameter-cache
   save_rust_cache:

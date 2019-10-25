@@ -90,7 +90,7 @@ jobs:
     docker:
       - image: filecoin/rust:latest
     working_directory: /mnt/crate
-    resource_class: xlarge
+    resource_class: 2xlarge+
     parameters:
       sector_size:
         type: integer

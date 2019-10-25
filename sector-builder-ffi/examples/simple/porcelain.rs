@@ -87,7 +87,14 @@ pub(crate) unsafe fn seal_pre_commit_nonblocking(
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = seal_pre_commit(&mut Default::default(), sector_builder, sector_id, ticket);
+        if let Err(err) =
+            seal_pre_commit(&mut Default::default(), sector_builder, sector_id, ticket)
+        {
+            panic!(
+                "failed to pre-commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
 }
 
@@ -100,7 +107,13 @@ pub(crate) unsafe fn resume_seal_pre_commit_nonblocking(
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = resume_seal_pre_commit(&mut Default::default(), sector_builder, sector_id);
+        if let Err(err) = resume_seal_pre_commit(&mut Default::default(), sector_builder, sector_id)
+        {
+            panic!(
+                "failed to resume pre-commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
 }
 
@@ -114,7 +127,12 @@ pub(crate) unsafe fn seal_commit_nonblocking(
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = seal_commit(&mut Default::default(), sector_builder, sector_id, seed);
+        if let Err(err) = seal_commit(&mut Default::default(), sector_builder, sector_id, seed) {
+            panic!(
+                "failed to commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
 }
 
@@ -127,7 +145,12 @@ pub(crate) unsafe fn resume_seal_commit_nonblocking(
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = resume_seal_commit(&mut Default::default(), sector_builder, sector_id);
+        if let Err(err) = resume_seal_commit(&mut Default::default(), sector_builder, sector_id) {
+            panic!(
+                "failed to resume commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
 }
 

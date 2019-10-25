@@ -313,15 +313,15 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
         let meta =
             opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
 
-        let (meta, ticket) = match (mode, meta.seal_status.clone()) {
-            (PreCommitMode::StartFresh(t), SealStatus::AcceptingPieces) => Ok((meta, t)),
-            (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok((meta, t)),
+        let ticket = match (mode, &meta.seal_status) {
+            (PreCommitMode::StartFresh(t), SealStatus::AcceptingPieces) => Ok(t.clone()),
+            (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok(t.clone()),
             (PreCommitMode::StartFresh(_), s) => Err(format_err!(
                 "cannot pre-commit sector with id {:?} and state {:?}",
                 sector_id,
                 s,
             )),
-            (PreCommitMode::Resume, SealStatus::PreCommittingPaused(t)) => Ok((meta, t)),
+            (PreCommitMode::Resume, SealStatus::PreCommittingPaused(t)) => Ok(t.clone()),
             (PreCommitMode::Resume, s) => Err(format_err!(
                 "cannot resume pre-commit sector with id {:?} and state {:?}",
                 sector_id,
@@ -367,9 +367,9 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
         let meta =
             opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
 
-        let (meta, ticket, key, pre_commit, seed) = match (mode, meta.seal_status.clone()) {
-            (CommitMode::StartFresh(s), SealStatus::PreCommitted(t, k, p)) => {
-                Ok((meta, t, k, p, s))
+        let (ticket, key, pre_commit, seed) = match (mode, &meta.seal_status) {
+            (CommitMode::StartFresh(ref s), SealStatus::PreCommitted(t, k, p)) => {
+                Ok((t.clone(), k.clone(), p.clone(), s.clone()))
             }
             (CommitMode::StartFresh(_), ss) => Err(format_err!(
                 "cannot commit sector with id {:?} and state {:?}",
@@ -377,7 +377,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                 ss,
             )),
             (CommitMode::Resume, SealStatus::CommittingPaused(t, k, p, s)) => {
-                Ok((meta, t, k, p, s))
+                Ok((t.clone(), k.clone(), p.clone(), s.clone()))
             }
             (CommitMode::Resume, ss) => Err(format_err!(
                 "cannot commit sector with id {:?} and state {:?}",

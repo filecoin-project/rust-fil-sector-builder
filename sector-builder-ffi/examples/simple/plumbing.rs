@@ -13,7 +13,7 @@ pub(crate) unsafe fn generate_post(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
-) -> std::result::Result<Vec<u8>, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<Vec<u8>, sector_builder_ffi_FCPResponseStatus> {
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
 
@@ -39,7 +39,7 @@ pub(crate) unsafe fn verify_post(
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
     proof: &[u8],
-) -> std::result::Result<bool, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<bool, sector_builder_ffi_FCPResponseStatus> {
     let sector_ids = proving_set.all_sector_ids();
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
@@ -69,10 +69,7 @@ pub(crate) unsafe fn get_sealed_sectors(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     with_health: bool,
-) -> std::result::Result<
-    Vec<sector_builder_ffi_FFISealedSectorMetadata>,
-    sector_builder_ffi_FCPResponseStatus,
-> {
+) -> Result<Vec<sector_builder_ffi_FFISealedSectorMetadata>, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_get_sealed_sectors(ptr, with_health);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_sealed_sectors_response(resp);
@@ -88,10 +85,7 @@ pub(crate) unsafe fn get_sealed_sectors(
 pub(crate) unsafe fn get_staged_sectors(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
-) -> std::result::Result<
-    Vec<sector_builder_ffi_FFIStagedSectorMetadata>,
-    sector_builder_ffi_FCPResponseStatus,
-> {
+) -> Result<Vec<sector_builder_ffi_FFIStagedSectorMetadata>, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_get_staged_sectors(ptr);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_staged_sectors_response(resp);
@@ -112,7 +106,7 @@ pub(crate) unsafe fn add_piece(
     piece_file: &std::fs::File,
     piece_len: usize,
     store_until_utc_secs: u64,
-) -> std::result::Result<u64, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<u64, sector_builder_ffi_FCPResponseStatus> {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
@@ -141,7 +135,7 @@ pub(crate) unsafe fn get_seal_status(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-) -> std::result::Result<sector_builder_ffi_FFISealStatus, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<sector_builder_ffi_FFISealStatus, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_get_seal_status(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_seal_status_response(resp);
@@ -158,7 +152,7 @@ pub(crate) unsafe fn read_piece_from_sealed_sector(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     piece_key: &str,
-) -> std::result::Result<Vec<u8>, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<Vec<u8>, sector_builder_ffi_FCPResponseStatus> {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
@@ -179,7 +173,7 @@ pub(crate) unsafe fn generate_piece_commitment(
     ctx: &mut Deallocator,
     piece_file: &mut std::fs::File,
     piece_len: usize,
-) -> std::result::Result<[u8; 32], sector_builder_ffi_FCPResponseStatus> {
+) -> Result<[u8; 32], sector_builder_ffi_FCPResponseStatus> {
     use std::os::unix::io::AsRawFd;
     let c_piece_fd = piece_file.as_raw_fd();
 
@@ -199,7 +193,7 @@ pub(crate) unsafe fn resume_seal_pre_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-) -> std::result::Result<(), sector_builder_ffi_FCPResponseStatus> {
+) -> Result<(), sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_resume_seal_pre_commit(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_resume_seal_pre_commit_response(resp);
@@ -216,10 +210,7 @@ pub(crate) unsafe fn resume_seal_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-) -> std::result::Result<
-    sector_builder_ffi_FFISealedSectorMetadata,
-    sector_builder_ffi_FCPResponseStatus,
-> {
+) -> Result<sector_builder_ffi_FFISealedSectorMetadata, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_resume_seal_commit(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_resume_seal_commit_response(resp);
@@ -237,7 +228,7 @@ pub(crate) unsafe fn seal_pre_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     ticket: sector_builder_ffi_FFISealTicket,
-) -> std::result::Result<(), sector_builder_ffi_FCPResponseStatus> {
+) -> Result<(), sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_seal_pre_commit(ptr, sector_id, ticket);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_pre_commit_response(resp);
@@ -255,10 +246,7 @@ pub(crate) unsafe fn seal_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     seed: sector_builder_ffi_FFISealSeed,
-) -> std::result::Result<
-    sector_builder_ffi_FFISealedSectorMetadata,
-    sector_builder_ffi_FCPResponseStatus,
-> {
+) -> Result<sector_builder_ffi_FFISealedSectorMetadata, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_seal_commit(ptr, sector_id, seed);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_commit_response(resp);
@@ -282,7 +270,7 @@ pub(crate) unsafe fn verify_seal(
     comm_d: [u8; 32],
     prover_id: [u8; 32],
     piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
-) -> std::result::Result<bool, sector_builder_ffi_FCPResponseStatus> {
+) -> Result<bool, sector_builder_ffi_FCPResponseStatus> {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
         &mut comm_r.clone(),
@@ -327,8 +315,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
-) -> std::result::Result<*mut sector_builder_ffi_SectorBuilder, sector_builder_ffi_FCPResponseStatus>
-{
+) -> Result<*mut sector_builder_ffi_SectorBuilder, sector_builder_ffi_FCPResponseStatus> {
     let c_metadata_dir = rust_str_to_c_str(metadata_dir.as_ref().to_str().unwrap());
     let c_sealed_dir = rust_str_to_c_str(sealed_dir.as_ref().to_str().unwrap());
     let c_staging_dir = rust_str_to_c_str(staging_dir.as_ref().to_str().unwrap());

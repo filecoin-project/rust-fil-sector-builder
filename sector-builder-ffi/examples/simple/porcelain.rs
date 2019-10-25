@@ -15,11 +15,26 @@ pub(crate) unsafe fn get_sealed_sector(
     sector_id: u64,
 ) -> sector_builder_ffi_FFISealedSectorMetadata {
     let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .find(|ss| ss.sector_id == sector_id)
-        .expect("no sealed sector with id 124");
+        .expect(&format!("no sealed sector with id {}", sector_id));
 
     sealed_sector
+}
+
+pub(crate) unsafe fn get_staged_sector(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) -> sector_builder_ffi_FFIStagedSectorMetadata {
+    let staged_sector = get_staged_sectors(ctx, ptr)
+        .unwrap()
+        .into_iter()
+        .find(|ss| ss.sector_id == sector_id)
+        .expect(&format!("no sealed sector with id {}", sector_id));
+
+    staged_sector
 }
 
 pub(crate) unsafe fn get_sealed_piece(
@@ -29,6 +44,7 @@ pub(crate) unsafe fn get_sealed_piece(
     piece_key: &str,
 ) -> sector_builder_ffi_FFIPieceMetadata {
     let sealed_sector = get_sealed_sectors(ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .find(|ss| ss.sector_id == sector_id)
         .expect(&format!("no sealed sector with id={}", sector_id));
@@ -51,6 +67,7 @@ pub(crate) unsafe fn get_sector_info(
     ptr: *mut sector_builder_ffi_SectorBuilder,
 ) -> Vec<PoStSectorInfo> {
     get_sealed_sectors(&mut ctx, ptr, true)
+        .unwrap()
         .into_iter()
         .map(|ss| PoStSectorInfo {
             sector_id: ss.sector_id,
@@ -60,26 +77,28 @@ pub(crate) unsafe fn get_sector_info(
         .collect()
 }
 
-pub(crate) unsafe fn seal_sector_nonblocking(
+pub(crate) unsafe fn seal_pre_commit_nonblocking(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-    seal_ticket: sector_builder_ffi_FFISealTicket,
+    ticket: sector_builder_ffi_FFISealTicket,
 ) {
     let atomic_ptr = AtomicPtr::new(ptr);
 
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = seal_sector(
-            &mut Default::default(),
-            sector_builder,
-            sector_id,
-            seal_ticket,
-        );
+        if let Err(err) =
+            seal_pre_commit(&mut Default::default(), sector_builder, sector_id, ticket)
+        {
+            panic!(
+                "failed to pre-commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
 }
 
-pub(crate) unsafe fn resume_seal_sector_nonblocking(
+pub(crate) unsafe fn resume_seal_pre_commit_nonblocking(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
 ) {
@@ -88,8 +107,56 @@ pub(crate) unsafe fn resume_seal_sector_nonblocking(
     thread::spawn(move || {
         let sector_builder = atomic_ptr.into_inner();
 
-        let _ = resume_seal_sector(&mut Default::default(), sector_builder, sector_id);
+        if let Err(err) = resume_seal_pre_commit(&mut Default::default(), sector_builder, sector_id)
+        {
+            panic!(
+                "failed to resume pre-commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
     });
+}
+
+pub(crate) unsafe fn seal_commit_nonblocking(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    seed: sector_builder_ffi_FFISealSeed,
+) {
+    let atomic_ptr = AtomicPtr::new(ptr);
+
+    thread::spawn(move || {
+        let sector_builder = atomic_ptr.into_inner();
+
+        if let Err(err) = seal_commit(&mut Default::default(), sector_builder, sector_id, seed) {
+            panic!(
+                "failed to commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
+    });
+}
+
+pub(crate) unsafe fn resume_seal_commit_nonblocking(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+) {
+    let atomic_ptr = AtomicPtr::new(ptr);
+
+    thread::spawn(move || {
+        let sector_builder = atomic_ptr.into_inner();
+
+        if let Err(err) = resume_seal_commit(&mut Default::default(), sector_builder, sector_id) {
+            panic!(
+                "failed to resume commit sector with id: {:?} (reason = {:?})",
+                sector_id, err
+            )
+        }
+    });
+}
+
+enum PollComplete {
+    Success(u64),
+    Failure(String),
 }
 
 pub(crate) unsafe fn poll_for_sector_sealing_status(
@@ -112,12 +179,24 @@ pub(crate) unsafe fn poll_for_sector_sealing_status(
                 _ => (),
             };
 
-            if get_seal_status(&mut Default::default(), sector_builder, sector_id) == target_status
-            {
-                let _ = result_tx.send(sector_id).unwrap();
+            let status =
+                get_seal_status(&mut Default::default(), sector_builder, sector_id).unwrap();
+
+            if status == target_status {
+                let _ = result_tx.send(PollComplete::Success(sector_id)).unwrap();
+            } else if status == sector_builder_ffi_FFISealStatus_Failed {
+                let meta = get_staged_sector(&mut Default::default(), sector_builder, sector_id);
+
+                let s = format!(
+                    "sealing failed for sector with id {:?} (reason = {:?})",
+                    sector_id,
+                    c_str_to_rust_str(meta.seal_error_msg)
+                );
+
+                let _ = result_tx.send(PollComplete::Failure(s)).unwrap();
             }
 
-            thread::sleep(Duration::from_millis(1000));
+            thread::sleep(Duration::from_millis(100));
         }
     });
 
@@ -125,9 +204,12 @@ pub(crate) unsafe fn poll_for_sector_sealing_status(
         let _ = kill_tx.send(true).unwrap();
     });
 
-    let now_sealed_sector_id = result_rx
+    let x = result_rx
         .recv_timeout(Duration::from_secs(max_wait_secs))
         .unwrap();
 
-    assert_eq!(now_sealed_sector_id, sector_id);
+    match x {
+        PollComplete::Success(id) => assert_eq!(id, sector_id),
+        PollComplete::Failure(msg) => panic!(msg),
+    }
 }

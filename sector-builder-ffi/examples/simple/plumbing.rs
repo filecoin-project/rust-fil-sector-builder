@@ -13,7 +13,7 @@ pub(crate) unsafe fn generate_post(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
 
@@ -28,10 +28,13 @@ pub(crate) unsafe fn generate_post(
     defer!(sector_builder_ffi_destroy_generate_post_response(resp));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec()
+    Ok(slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec())
 }
 
 pub(crate) unsafe fn verify_post(
@@ -39,7 +42,7 @@ pub(crate) unsafe fn verify_post(
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
     proof: &[u8],
-) -> bool {
+) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
     let sector_ids = proving_set.all_sector_ids();
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
@@ -59,43 +62,58 @@ pub(crate) unsafe fn verify_post(
     defer!(sector_builder_ffi_destroy_verify_post_response(resp));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).is_valid.clone()
+    Ok((*resp).is_valid.clone())
 }
 
 pub(crate) unsafe fn get_sealed_sectors(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     with_health: bool,
-) -> Vec<sector_builder_ffi_FFISealedSectorMetadata> {
+) -> Result<
+    Vec<sector_builder_ffi_FFISealedSectorMetadata>,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
     let resp = sector_builder_ffi_get_sealed_sectors(ptr, with_health);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_sealed_sectors_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    slice::from_raw_parts((*resp).meta_ptr, (*resp).meta_len).to_vec()
+    Ok(slice::from_raw_parts((*resp).meta_ptr, (*resp).meta_len).to_vec())
 }
 
 pub(crate) unsafe fn get_staged_sectors(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
-) -> Vec<sector_builder_ffi_FFIStagedSectorMetadata> {
+) -> Result<
+    Vec<sector_builder_ffi_FFIStagedSectorMetadata>,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
     let resp = sector_builder_ffi_get_staged_sectors(ptr);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_staged_sectors_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec()
+    Ok(slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -106,7 +124,7 @@ pub(crate) unsafe fn add_piece(
     piece_file: &std::fs::File,
     piece_len: usize,
     store_until_utc_secs: u64,
-) -> u64 {
+) -> Result<u64, (sector_builder_ffi_FCPResponseStatus, String)> {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
@@ -125,34 +143,40 @@ pub(crate) unsafe fn add_piece(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).sector_id.clone()
+    Ok((*resp).sector_id.clone())
 }
 
 pub(crate) unsafe fn get_seal_status(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-) -> sector_builder_ffi_FFISealStatus {
+) -> Result<sector_builder_ffi_FFISealStatus, (sector_builder_ffi_FCPResponseStatus, String)> {
     let resp = sector_builder_ffi_get_seal_status(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_get_seal_status_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).seal_status_code.clone()
+    Ok((*resp).seal_status_code.clone())
 }
 
 pub(crate) unsafe fn read_piece_from_sealed_sector(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     piece_key: &str,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
     let c_piece_key = rust_str_to_c_str(piece_key);
     defer!(free_c_str(c_piece_key));
 
@@ -162,10 +186,13 @@ pub(crate) unsafe fn read_piece_from_sealed_sector(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec()
+    Ok(slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -173,7 +200,7 @@ pub(crate) unsafe fn generate_piece_commitment(
     ctx: &mut Deallocator,
     piece_file: &mut std::fs::File,
     piece_len: usize,
-) -> [u8; 32] {
+) -> Result<[u8; 32], (sector_builder_ffi_FCPResponseStatus, String)> {
     use std::os::unix::io::AsRawFd;
     let c_piece_fd = piece_file.as_raw_fd();
 
@@ -182,42 +209,102 @@ pub(crate) unsafe fn generate_piece_commitment(
         sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
     })));
 
-    (*resp).comm_p.clone()
+    if (*resp).status_code != 0 {
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
+    }
+
+    Ok((*resp).comm_p.clone())
 }
 
-pub(crate) unsafe fn resume_seal_sector(
+pub(crate) unsafe fn resume_seal_pre_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let resp = sector_builder_ffi_resume_seal_sector(ptr, sector_id);
+) -> Result<(), (sector_builder_ffi_FCPResponseStatus, String)> {
+    let resp = sector_builder_ffi_resume_seal_pre_commit(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_resume_seal_sector_response(resp);
+        sector_builder_ffi_destroy_resume_seal_pre_commit_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).meta
+    Ok(())
 }
 
-pub(crate) unsafe fn seal_sector(
+pub(crate) unsafe fn resume_seal_commit(
     ctx: &mut Deallocator,
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
-    seal_ticket: sector_builder_ffi_FFISealTicket,
-) -> sector_builder_ffi_FFISealedSectorMetadata {
-    let resp = sector_builder_ffi_seal_sector(ptr, sector_id, seal_ticket);
+) -> Result<
+    sector_builder_ffi_FFISealedSectorMetadata,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
+    let resp = sector_builder_ffi_resume_seal_commit(ptr, sector_id);
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_seal_sector_response(resp);
+        sector_builder_ffi_destroy_resume_seal_commit_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).meta
+    Ok((*resp).meta)
+}
+
+pub(crate) unsafe fn seal_pre_commit(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    ticket: sector_builder_ffi_FFISealTicket,
+) -> Result<(), (sector_builder_ffi_FCPResponseStatus, String)> {
+    let resp = sector_builder_ffi_seal_pre_commit(ptr, sector_id, ticket);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_seal_pre_commit_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) unsafe fn seal_commit(
+    ctx: &mut Deallocator,
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    sector_id: u64,
+    seed: sector_builder_ffi_FFISealSeed,
+) -> Result<
+    sector_builder_ffi_FFISealedSectorMetadata,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
+    let resp = sector_builder_ffi_seal_commit(ptr, sector_id, seed);
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_seal_commit_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
+    }
+
+    Ok((*resp).meta)
 }
 
 pub(crate) unsafe fn verify_seal(
@@ -225,11 +312,13 @@ pub(crate) unsafe fn verify_seal(
     sector_size: u64,
     sector_id: u64,
     ticket: [u8; 32],
+    seed: [u8; 32],
     proof: &[u8],
     comm_r: [u8; 32],
     comm_d: [u8; 32],
     prover_id: [u8; 32],
-) -> bool {
+    piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
+) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
         &mut comm_r.clone(),
@@ -237,18 +326,24 @@ pub(crate) unsafe fn verify_seal(
         &mut prover_id.clone(),
         sector_id,
         &mut ticket.clone(),
+        &mut seed.clone(),
         proof.as_ptr(),
         proof.len(),
+        piece_info.as_ptr(),
+        piece_info.len(),
     );
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_verify_seal_response(resp);
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).is_valid.clone()
+    Ok((*resp).is_valid.clone())
 }
 
 pub(crate) unsafe fn get_max_user_bytes_per_staged_sector(sector_size: u64) -> u64 {
@@ -261,30 +356,6 @@ pub(crate) unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_Secto
     assert!(p.is_null());
 }
 
-pub(crate) unsafe fn verify_piece_inclusion_proof(
-    sector_size: u64,
-    comm_d: [u8; 32],
-    comm_p: [u8; 32],
-    proof: &[u8],
-    piece_len: usize,
-) -> bool {
-    let resp = sector_builder_ffi_verify_piece_inclusion_proof(
-        &mut comm_d.clone(),
-        &mut comm_p.clone(),
-        proof.as_ptr(),
-        proof.len(),
-        piece_len as u64,
-        sector_size as u64,
-    );
-    defer!(sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(resp));
-
-    if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg));
-    }
-
-    (*resp).is_valid.clone()
-}
-
 pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     ctx: &mut Deallocator,
     metadata_dir: T,
@@ -295,7 +366,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     last_committed_sector_id: u64,
     sector_class: sector_builder_ffi_FFISectorClass,
     max_num_staged_sectors: u8,
-) -> *mut sector_builder_ffi_SectorBuilder {
+) -> Result<*mut sector_builder_ffi_SectorBuilder, (sector_builder_ffi_FCPResponseStatus, String)> {
     let c_metadata_dir = rust_str_to_c_str(metadata_dir.as_ref().to_str().unwrap());
     let c_sealed_dir = rust_str_to_c_str(sealed_dir.as_ref().to_str().unwrap());
     let c_staging_dir = rust_str_to_c_str(staging_dir.as_ref().to_str().unwrap());
@@ -324,8 +395,11 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
     }
 
-    (*resp).sector_builder
+    Ok((*resp).sector_builder)
 }

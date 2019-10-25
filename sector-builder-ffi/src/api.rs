@@ -6,61 +6,14 @@ use ffi_toolkit::rust_str_to_c_str;
 use ffi_toolkit::{c_str_to_rust_str, raw_ptr};
 use libc;
 use once_cell::sync::OnceCell;
-use sector_builder::{GetSealedSectorResult, SealStatus, SealTicket, SecondsSinceEpoch};
+use sector_builder::{GetSealedSectorResult, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
-use crate::responses::{
-    self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealStatus,
-    FFISealedSectorHealth, FFISealedSectorMetadata,
+use crate::types::{
+    self, err_code_and_msg, FCPResponseStatus, FFIPieceMetadata, FFISealSeed, FFISealStatus,
+    FFISealTicket, FFISealedSectorHealth, FFISealedSectorMetadata, FFISectorClass,
+    FileDescriptorRef, SectorBuilder,
 };
-
-#[repr(C)]
-pub struct FFISealTicket {
-    /// the height at which we chose the ticket
-    pub block_height: u64,
-
-    /// bytes of the minimum ticket chosen from a block with given height
-    pub ticket_bytes: [u8; 32],
-}
-
-impl From<FFISealTicket> for SealTicket {
-    fn from(fst: FFISealTicket) -> Self {
-        match fst {
-            FFISealTicket {
-                block_height,
-                ticket_bytes,
-            } => sector_builder::SealTicket {
-                block_height,
-                ticket_bytes,
-            },
-        }
-    }
-}
-
-#[repr(C)]
-pub struct FFISectorClass {
-    sector_size: u64,
-    porep_proof_partitions: u8,
-}
-
-pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
-
-/// Filedescriptor, that does not drop the file descriptor when dropped.
-pub struct FileDescriptorRef(nodrop::NoDrop<std::fs::File>);
-
-impl FileDescriptorRef {
-    #[cfg(not(target_os = "windows"))]
-    pub unsafe fn new(raw: std::os::unix::io::RawFd) -> Self {
-        use std::os::unix::io::FromRawFd;
-        FileDescriptorRef(nodrop::NoDrop::new(std::fs::File::from_raw_fd(raw)))
-    }
-}
-
-impl std::io::Read for FileDescriptorRef {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.0.read(buf)
-    }
-}
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
@@ -73,7 +26,7 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     piece_fd_raw: libc::c_int,
     piece_bytes_amount: u64,
     store_until_utc_secs: u64,
-) -> *mut responses::AddPieceResponse {
+) -> *mut types::AddPieceResponse {
     init_log();
 
     info!("add_piece: {}", "start");
@@ -81,17 +34,17 @@ pub unsafe extern "C" fn sector_builder_ffi_add_piece(
     let piece_key = c_str_to_rust_str(piece_key);
     let piece_fd = FileDescriptorRef::new(piece_fd_raw);
 
-    let mut response: responses::AddPieceResponse = Default::default();
+    let mut response: types::AddPieceResponse = Default::default();
 
     match (*ptr).add_piece(
-        String::from(piece_key),
+        piece_key.into(),
         piece_fd,
         piece_bytes_amount,
         SecondsSinceEpoch(store_until_utc_secs),
     ) {
         Ok(sector_id) => {
             response.status_code = FCPResponseStatus::FCPNoError;
-            response.sector_id = u64::from(sector_id);
+            response.sector_id = sector_id.into();
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -117,27 +70,6 @@ pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector
     filecoin_proofs_ffi::api::get_max_user_bytes_per_staged_sector(sector_size)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_verify_piece_inclusion_proof(
-    comm_d: &[u8; 32],
-    comm_p: &[u8; 32],
-    piece_inclusion_proof_ptr: *const u8,
-    piece_inclusion_proof_len: libc::size_t,
-    padded_piece_size: u64,
-    sector_size: u64,
-) -> *mut filecoin_proofs_ffi::responses::VerifyPieceInclusionProofResponse {
-    init_log();
-
-    filecoin_proofs_ffi::api::verify_piece_inclusion_proof(
-        comm_d,
-        comm_p,
-        piece_inclusion_proof_ptr,
-        piece_inclusion_proof_len,
-        padded_piece_size,
-        sector_size,
-    )
-}
-
 /// Returns the merkle root for a piece after piece padding and alignment.
 /// The caller is responsible for closing the file descriptor.
 #[no_mangle]
@@ -157,17 +89,18 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
 pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
     ptr: *mut SectorBuilder,
     sector_id: u64,
-) -> *mut responses::GetSealStatusResponse {
+) -> *mut types::GetSealStatusResponse {
     init_log();
 
-    let mut response: responses::GetSealStatusResponse = Default::default();
+    let mut response: types::GetSealStatusResponse = Default::default();
 
     match (*ptr).get_seal_status(SectorId::from(sector_id)) {
         Ok(seal_status) => {
             response.status_code = FCPResponseStatus::FCPNoError;
+            response.seal_status_code = seal_status.clone().into();
 
             match seal_status {
-                SealStatus::Sealed(meta) => {
+                SealStatus::Committed(meta) => {
                     let meta = *meta;
 
                     let pieces = meta
@@ -182,33 +115,20 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                     response.pieces_ptr = pieces.as_ptr();
                     response.proof_len = meta.proof.len();
                     response.proof_ptr = meta.proof.as_ptr();
-                    response.seal_status_code = FFISealStatus::Sealed;
                     response.sector_access = rust_str_to_c_str(meta.sector_access);
                     response.sector_id = u64::from(meta.sector_id);
                     response.seal_ticket = FFISealTicket {
-                        block_height: meta.seal_ticket.block_height,
-                        ticket_bytes: meta.seal_ticket.ticket_bytes,
+                        block_height: meta.ticket.block_height,
+                        ticket_bytes: meta.ticket.ticket_bytes,
                     };
 
                     mem::forget(meta.proof);
                     mem::forget(pieces);
                 }
-                SealStatus::ReadyForSealing => {
-                    response.seal_status_code = FFISealStatus::ReadyForSealing;
-                }
-                SealStatus::Paused(_) => {
-                    response.seal_status_code = FFISealStatus::Paused;
-                }
-                SealStatus::Sealing(_) => {
-                    response.seal_status_code = FFISealStatus::Sealing;
-                }
-                SealStatus::Pending => {
-                    response.seal_status_code = FFISealStatus::Pending;
-                }
-                SealStatus::Failed(err) => {
-                    response.seal_status_code = FFISealStatus::Failed;
+                SealStatus::Failed(ref err) => {
                     response.seal_error_msg = rust_str_to_c_str(err);
                 }
+                _ => (),
             }
         }
         Err(err) => {
@@ -225,10 +145,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
 pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
     ptr: *mut SectorBuilder,
     check_health: bool,
-) -> *mut responses::GetSealedSectorsResponse {
+) -> *mut types::GetSealedSectorsResponse {
     init_log();
 
-    let mut response: responses::GetSealedSectorsResponse = Default::default();
+    let mut response: types::GetSealedSectorsResponse = Default::default();
 
     match (*ptr).get_sealed_sectors(check_health) {
         Ok(sealed_sectors) => {
@@ -248,7 +168,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
                     sector.health = ffi_health;
                     sector
                 })
-                .collect::<Vec<responses::FFISealedSectorMetadata>>();
+                .collect::<Vec<types::FFISealedSectorMetadata>>();
 
             response.meta_len = sectors.len();
             response.meta_ptr = sectors.as_ptr();
@@ -268,10 +188,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_sealed_sectors(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
     ptr: *mut SectorBuilder,
-) -> *mut responses::GetStagedSectorsResponse {
+) -> *mut types::GetStagedSectorsResponse {
     init_log();
 
-    let mut response: responses::GetStagedSectorsResponse = Default::default();
+    let mut response: types::GetStagedSectorsResponse = Default::default();
 
     match (*ptr).get_staged_sectors() {
         Ok(staged_sectors) => {
@@ -286,42 +206,26 @@ pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
                         .map(|x| x.clone().into())
                         .collect::<Vec<FFIPieceMetadata>>();
 
-                    let mut sector = responses::FFIStagedSectorMetadata {
+                    let mut sector = types::FFIStagedSectorMetadata {
                         sector_access: rust_str_to_c_str(meta.sector_access.clone()),
                         sector_id: u64::from(meta.sector_id),
                         pieces_len: pieces.len(),
                         pieces_ptr: pieces.as_ptr(),
-                        seal_status_code: FFISealStatus::Pending,
+                        seal_status_code: FFISealStatus::AcceptingPieces,
                         seal_error_msg: ptr::null(),
                     };
 
-                    match meta.seal_status {
-                        SealStatus::Failed(ref s) => {
-                            sector.seal_status_code = FFISealStatus::Failed;
-                            sector.seal_error_msg = rust_str_to_c_str(s.clone());
-                        }
-                        SealStatus::ReadyForSealing => {
-                            sector.seal_status_code = FFISealStatus::ReadyForSealing;
-                        }
-                        SealStatus::Sealing(_) => {
-                            sector.seal_status_code = FFISealStatus::Sealing;
-                        }
-                        SealStatus::Paused(_) => {
-                            sector.seal_status_code = FFISealStatus::Paused;
-                        }
-                        SealStatus::Pending => {
-                            sector.seal_status_code = FFISealStatus::Pending;
-                        }
-                        SealStatus::Sealed(_) => {
-                            sector.seal_status_code = FFISealStatus::Sealed;
-                        }
-                    };
+                    sector.seal_status_code = meta.seal_status.clone().into();
+
+                    if let SealStatus::Failed(ref s) = meta.seal_status {
+                        sector.seal_error_msg = rust_str_to_c_str(s.clone());
+                    }
 
                     mem::forget(pieces);
 
                     sector
                 })
-                .collect::<Vec<responses::FFIStagedSectorMetadata>>();
+                .collect::<Vec<types::FFIStagedSectorMetadata>>();
 
             response.sectors_len = sectors.len();
             response.sectors_ptr = sectors.as_ptr();
@@ -348,7 +252,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     challenge_seed: &[u8; 32],
     faults_ptr: *const u64,
     faults_len: libc::size_t,
-) -> *mut responses::GeneratePoStResponse {
+) -> *mut types::GeneratePoStResponse {
     init_log();
 
     info!("generate_post: {}", "start");
@@ -361,7 +265,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
 
     let result = (*ptr).generate_post(&comm_rs, challenge_seed, faults);
 
-    let mut response = responses::GeneratePoStResponse::default();
+    let mut response = types::GeneratePoStResponse::default();
 
     match result {
         Ok(proof) => {
@@ -397,12 +301,12 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     staged_sector_dir: *const libc::c_char,
     sector_cache_root_dir: *const libc::c_char,
     max_num_staged_sectors: u8,
-) -> *mut responses::InitSectorBuilderResponse {
+) -> *mut types::InitSectorBuilderResponse {
     init_log();
 
     let result = SectorBuilder::init_from_metadata(
-        from_ffi_sector_class(sector_class),
-        SectorId::from(last_used_sector_id),
+        sector_class.into(),
+        last_used_sector_id.into(),
         c_str_to_rust_str(metadata_dir).to_string(),
         *prover_id,
         c_str_to_rust_str(sealed_sector_dir).to_string(),
@@ -411,7 +315,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
         max_num_staged_sectors,
     );
 
-    let mut response = responses::InitSectorBuilderResponse::default();
+    let mut response = types::InitSectorBuilderResponse::default();
 
     match result {
         Ok(sb) => {
@@ -428,23 +332,24 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Pre-commits a sector of the provided id to a ticket from the chain. This is
+/// the first step of Interactive PoRep.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_resume_seal_sector(
+pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
-) -> *mut responses::ResumeSealSectorResponse {
+    seal_ticket: FFISealTicket,
+) -> *mut types::SealPreCommitResponse {
     init_log();
 
-    info!("resume_seal_sector: {}", "start");
+    info!("seal_pre_commit: {}", "start");
 
-    let mut response: responses::ResumeSealSectorResponse = Default::default();
+    let mut response: types::SealPreCommitResponse = Default::default();
 
-    match (*ptr).resume_seal_sector(sector_id.into()) {
-        Ok(meta) => {
+    match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
+        Ok(_) => {
             response.status_code = FCPResponseStatus::FCPNoError;
-            response.meta = meta.into();
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -453,26 +358,27 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_sector(
         }
     }
 
-    info!("resume_seal_sector: {}", "finish");
+    info!("seal_pre_commit: {}", "finish");
 
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Commits a pre-sealed sector to a particular seed. The second step of
+/// Interactive PoRep.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_seal_sector(
+pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
-    seal_ticket: FFISealTicket,
-) -> *mut responses::SealSectorResponse {
+    seal_seed: FFISealSeed,
+) -> *mut types::SealCommitResponse {
     init_log();
 
-    info!("seal_sector: {}", "start");
+    info!("seal_commit: {}", "start");
 
-    let mut response: responses::SealSectorResponse = Default::default();
+    let mut response: types::SealCommitResponse = Default::default();
 
-    match (*ptr).seal_sector(sector_id.into(), seal_ticket.into()) {
+    match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
         Ok(meta) => {
             response.status_code = FCPResponseStatus::FCPNoError;
             response.meta = meta.into();
@@ -484,7 +390,70 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_sector(
         }
     }
 
-    info!("seal_sector: {}", "finish");
+    info!("seal_commit: {}", "finish");
+
+    raw_ptr(response)
+}
+
+/// Resumes pre-committing of a sector which was previously paused. Produces an
+/// error if the sector with requested id is not in a state which allows it to
+/// be resumed.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
+    ptr: *mut SectorBuilder,
+    sector_id: u64,
+) -> *mut types::ResumeSealPreCommitResponse {
+    init_log();
+
+    info!("resume_seal_pre_commit: {}", "start");
+
+    let mut response: types::ResumeSealPreCommitResponse = Default::default();
+
+    match (*ptr).resume_seal_pre_commit(sector_id.into()) {
+        Ok(_) => {
+            response.status_code = FCPResponseStatus::FCPNoError;
+        }
+        Err(err) => {
+            let (code, ptr) = err_code_and_msg(&err);
+            response.status_code = code;
+            response.error_msg = ptr;
+        }
+    }
+
+    info!("resume_seal_pre_commit: {}", "finish");
+
+    raw_ptr(response)
+}
+
+/// Resumes committing of a sector which was previously paused. Produces an
+/// error if the sector with requested id is not in a state which allows it to
+/// be resumed.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_resume_seal_commit(
+    ptr: *mut SectorBuilder,
+    sector_id: u64,
+) -> *mut types::ResumeSealCommitResponse {
+    init_log();
+
+    info!("resume_seal_commit: {}", "start");
+
+    let mut response: types::ResumeSealCommitResponse = Default::default();
+
+    match (*ptr).resume_seal_commit(sector_id.into()) {
+        Ok(meta) => {
+            response.status_code = FCPResponseStatus::FCPNoError;
+            response.meta = meta.into();
+        }
+        Err(err) => {
+            let (code, ptr) = err_code_and_msg(&err);
+            response.status_code = code;
+            response.error_msg = ptr;
+        }
+    }
+
+    info!("resume_seal_commit: {}", "finish");
 
     raw_ptr(response)
 }
@@ -495,16 +464,16 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_sector(
 pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
     ptr: *mut SectorBuilder,
     piece_key: *const libc::c_char,
-) -> *mut responses::ReadPieceFromSealedSectorResponse {
+) -> *mut types::ReadPieceFromSealedSectorResponse {
     init_log();
 
     info!("read_piece_from_sealed_sector: {}", "start");
 
-    let mut response: responses::ReadPieceFromSealedSectorResponse = Default::default();
+    let mut response: types::ReadPieceFromSealedSectorResponse = Default::default();
 
     let piece_key = c_str_to_rust_str(piece_key);
 
-    match (*ptr).read_piece_from_sealed_sector(String::from(piece_key)) {
+    match (*ptr).read_piece_from_sealed_sector(piece_key.into()) {
         Ok(piece_bytes) => {
             response.status_code = FCPResponseStatus::FCPNoError;
             response.data_ptr = piece_bytes.as_ptr();
@@ -523,45 +492,6 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
     raw_ptr(response)
 }
 
-/// For demo purposes. Seals all staged sectors.
-///
-#[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_seal_all_staged_sectors(
-    ptr: *mut SectorBuilder,
-    seal_ticket: FFISealTicket,
-) -> *mut responses::SealAllStagedSectorsResponse {
-    init_log();
-
-    info!("seal_all_staged_sectors: {}", "start");
-
-    let mut response: responses::SealAllStagedSectorsResponse = Default::default();
-
-    match (*ptr).seal_all_staged_sectors(seal_ticket.into()) {
-        Ok(meta) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
-
-            let sectors = meta
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<responses::FFISealedSectorMetadata>>();
-
-            response.meta_len = sectors.len();
-            response.meta_ptr = sectors.as_ptr();
-
-            mem::forget(sectors);
-        }
-        Err(err) => {
-            let (code, ptr) = err_code_and_msg(&err);
-            response.status_code = code;
-            response.error_msg = ptr;
-        }
-    }
-
-    info!("seal_all_staged_sectors: {}", "finish");
-
-    raw_ptr(response)
-}
-
 /// Verifies the output of seal.
 ///
 #[no_mangle]
@@ -572,8 +502,11 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     prover_id: &[u8; 32],
     sector_id: u64,
     ticket: &[u8; 32],
+    seed: &[u8; 32],
     proof_ptr: *const u8,
     proof_len: libc::size_t,
+    pieces_ptr: *const filecoin_proofs_ffi::api::FFIPublicPieceInfo,
+    pieces_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
     init_log();
 
@@ -583,9 +516,12 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
         comm_d,
         prover_id,
         ticket,
+        seed,
         sector_id,
         proof_ptr,
         proof_len,
+        pieces_ptr,
+        pieces_len,
     )
 }
 
@@ -626,61 +562,81 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(
-    ptr: *mut responses::AddPieceResponse,
+    ptr: *mut types::AddPieceResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(
-    ptr: *mut responses::GeneratePoStResponse,
+    ptr: *mut types::GeneratePoStResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_seal_status_response(
-    ptr: *mut responses::GetSealStatusResponse,
+    ptr: *mut types::GetSealStatusResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_sealed_sectors_response(
-    ptr: *mut responses::GetSealedSectorsResponse,
+    ptr: *mut types::GetSealedSectorsResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_get_staged_sectors_response(
-    ptr: *mut responses::GetStagedSectorsResponse,
+    ptr: *mut types::GetStagedSectorsResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_init_sector_builder_response(
-    ptr: *mut responses::InitSectorBuilderResponse,
+    ptr: *mut types::InitSectorBuilderResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_read_piece_from_sealed_sector_response(
-    ptr: *mut responses::ReadPieceFromSealedSectorResponse,
+    ptr: *mut types::ReadPieceFromSealedSectorResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_all_staged_sectors_response(
-    ptr: *mut responses::SealAllStagedSectorsResponse,
+pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_pre_commit_response(
+    ptr: *mut types::SealPreCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
-/// Deallocates a VerifySealResponse.
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_commit_response(
+    ptr: *mut types::SealCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_pre_commit_response(
+    ptr: *mut types::ResumeSealPreCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_commit_response(
+    ptr: *mut types::ResumeSealCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_seal_response(
@@ -696,15 +652,6 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_post_response(
     ptr: *mut filecoin_proofs_ffi::responses::VerifyPoStResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_verify_post_response(ptr)
-}
-
-/// Deallocates a VerifyPieceInclusionProofResponse.
-///
-#[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_piece_inclusion_proof_response(
-    ptr: *mut filecoin_proofs_ffi::responses::VerifyPieceInclusionProofResponse,
-) {
-    filecoin_proofs_ffi::api::destroy_verify_piece_inclusion_proof_response(ptr)
 }
 
 /// Deallocates a GeneratePieceCommitmentResponse.
@@ -724,20 +671,20 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_sector_builder(ptr: *mut Sec
     let _ = Box::from_raw(ptr);
 }
 
-/// Destroys a SealSectorResponse.
+/// Destroys a SealPreCommitSectorResponse.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_sector_response(
-    ptr: *mut responses::SealSectorResponse,
+pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_pre_commit_sector_response(
+    ptr: *mut types::SealPreCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
-/// Destroys a ResumeSealSectorResponse.
+/// Destroys a ResumeSealCommitSectorResponse.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_sector_response(
-    ptr: *mut responses::ResumeSealSectorResponse,
+pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_commit_sector_response(
+    ptr: *mut types::ResumeSealCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
@@ -760,18 +707,6 @@ unsafe fn into_commitments(
             acc.push(x);
             acc
         })
-}
-
-pub fn from_ffi_sector_class(fsc: FFISectorClass) -> filecoin_proofs::SectorClass {
-    match fsc {
-        FFISectorClass {
-            sector_size,
-            porep_proof_partitions,
-        } => filecoin_proofs::SectorClass(
-            filecoin_proofs::SectorSize(sector_size),
-            filecoin_proofs::PoRepProofPartitions(porep_proof_partitions),
-        ),
-    }
 }
 
 /// Protects the init off the logger.

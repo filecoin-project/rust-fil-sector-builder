@@ -68,14 +68,14 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
-    unsafe { state_transitions(sector_size).unwrap() };
     unsafe { kill_restart_recovery(sector_size).unwrap() };
+    unsafe { sector_state_transitions(sector_size).unwrap() };
     unsafe { sector_builder_lifecycle(sector_size).unwrap() };
 }
 
 /// A test which demonstrates the various state transitions for a staged sector
 /// on its journey towards being sealed.
-unsafe fn state_transitions(sector_size: u64) -> Result<(), failure::Error> {
+unsafe fn sector_state_transitions(sector_size: u64) -> Result<(), failure::Error> {
     let cfg = StateTransitionsTestConfiguration {
         sector_class: sector_builder_ffi_FFISectorClass {
             sector_size,

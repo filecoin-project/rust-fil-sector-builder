@@ -332,7 +332,8 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Pre-commits a sector of the provided id to a ticket from the chain. This is
+/// the first step of Interactive PoRep.
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
@@ -362,7 +363,8 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Commits a pre-sealed sector to a particular seed. The second step of
+/// Interactive PoRep.
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
@@ -393,7 +395,9 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Resumes pre-committing of a sector which was previously paused. Produces an
+/// error if the sector with requested id is not in a state which allows it to
+/// be resumed.
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
@@ -422,7 +426,9 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
     raw_ptr(response)
 }
 
-/// TODO: document
+/// Resumes committing of a sector which was previously paused. Produces an
+/// error if the sector with requested id is not in a state which allows it to
+/// be resumed.
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_resume_seal_commit(

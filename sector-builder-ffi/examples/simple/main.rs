@@ -47,6 +47,17 @@ struct KillRestartTestConfiguration {
     max_secs_to_seal_sector: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StateTransitionsTestConfiguration {
+    half_sector_size_unpadded: usize,
+    max_num_staged_sectors: u8,
+    max_secs_to_seal_sector: u64,
+    sector_class: sector_builder_ffi_FFISectorClass,
+    seal_seed: sector_builder_ffi_FFISealSeed,
+    seal_ticket: sector_builder_ffi_FFISealTicket,
+    prover_id: [u8; 32],
+}
+
 fn main() {
     pretty_env_logger::try_init_timed().expect("could not initialize logger");
 
@@ -57,8 +68,217 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
+    unsafe { state_transitions(sector_size).unwrap() };
     unsafe { kill_restart_recovery(sector_size).unwrap() };
     unsafe { sector_builder_lifecycle(sector_size).unwrap() };
+}
+
+/// A test which demonstrates the various state transitions for a staged sector
+/// on its journey towards being sealed.
+unsafe fn state_transitions(sector_size: u64) -> Result<(), failure::Error> {
+    let cfg = StateTransitionsTestConfiguration {
+        sector_class: sector_builder_ffi_FFISectorClass {
+            sector_size,
+            porep_proof_partitions: 2,
+        },
+        seal_seed: sector_builder_ffi_FFISealSeed {
+            block_height: 10,
+            ticket_bytes: [0u8; 32],
+        },
+        seal_ticket: sector_builder_ffi_FFISealTicket {
+            block_height: 15,
+            ticket_bytes: [1u8; 32],
+        },
+        half_sector_size_unpadded: ((508.0 / 1024.0) * (sector_size as f64)) as usize,
+        max_num_staged_sectors: 2,
+        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+        prover_id: [4u8; 32],
+    };
+
+    let mut ctx: Deallocator = Default::default();
+
+    info!("running FFI test using cfg={:?}", cfg);
+
+    let dir_meta = tempfile::tempdir()?;
+    let dir_stag = tempfile::tempdir()?;
+    let dir_seal = tempfile::tempdir()?;
+    let dir_cach = tempfile::tempdir()?;
+
+    let ptr = init_sector_builder(
+        &mut ctx,
+        &dir_meta,
+        &dir_stag,
+        &dir_seal,
+        &dir_cach,
+        cfg.prover_id,
+        600,
+        cfg.sector_class,
+        cfg.max_num_staged_sectors,
+    )
+    .unwrap();
+
+    // add a piece that half-fills a sector
+    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
+    assert_eq!(
+        601,
+        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
+    );
+
+    // block until state==AcceptingPieces
+    poll_for_sector_sealing_status(
+        ptr,
+        601,
+        sector_builder_ffi_FFISealStatus_AcceptingPieces,
+        5,
+    );
+
+    // verify can't commit
+    assert!(
+        seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),
+        "invalid transition: commit(accepting)"
+    );
+
+    // verify can't resume pre-commit
+    assert!(
+        resume_seal_pre_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume pre-commit(accepting)"
+    );
+
+    // verify can't resume commit
+    assert!(
+        resume_seal_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume commit(accepting)"
+    );
+
+    // add a piece that fills the remaining space
+    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
+    assert_eq!(
+        601,
+        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
+    );
+
+    // block until state==FullyPacked
+    poll_for_sector_sealing_status(ptr, 601, sector_builder_ffi_FFISealStatus_FullyPacked, 5);
+
+    // verify can't commit
+    assert!(
+        seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),
+        "invalid transition: commit(fully)"
+    );
+
+    // verify can't resume pre-commit
+    assert!(
+        resume_seal_pre_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume pre-commit(fully)"
+    );
+
+    // verify can't resume commit
+    assert!(
+        resume_seal_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume commit(fully)"
+    );
+
+    // pre-commit sector
+    seal_pre_commit_nonblocking(ptr, 601, cfg.seal_ticket);
+
+    // block until state==PreCommitting
+    poll_for_sector_sealing_status(ptr, 601, sector_builder_ffi_FFISealStatus_PreCommitting, 5);
+
+    // verify can't pre-commit
+    assert!(
+        seal_pre_commit(&mut ctx, ptr, 601, cfg.seal_ticket).is_err(),
+        "invalid transition: pre-commit(pre-committing)"
+    );
+
+    // verify can't commit
+    assert!(
+        seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),
+        "invalid transition: commit(pre-committing)"
+    );
+
+    // verify can't resume pre-commit
+    assert!(
+        resume_seal_pre_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume pre-commit(pre-committing)"
+    );
+
+    // verify can't resume commit
+    assert!(
+        resume_seal_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume commit(pre-committing)"
+    );
+
+    // block until state==PreCommitting
+    poll_for_sector_sealing_status(
+        ptr,
+        601,
+        sector_builder_ffi_FFISealStatus_PreCommitted,
+        cfg.max_secs_to_seal_sector,
+    );
+
+    // commit
+    seal_commit_nonblocking(ptr, 601, cfg.seal_seed);
+
+    // block until state==Committing
+    poll_for_sector_sealing_status(ptr, 601, sector_builder_ffi_FFISealStatus_Committing, 5);
+
+    // verify can't pre-commit
+    assert!(
+        seal_pre_commit(&mut ctx, ptr, 601, cfg.seal_ticket).is_err(),
+        "invalid transition: pre-commit(pre-committing)"
+    );
+
+    // verify can't commit
+    assert!(
+        seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),
+        "invalid transition: commit(pre-committing)"
+    );
+
+    // verify can't resume pre-commit
+    assert!(
+        resume_seal_pre_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume pre-commit(pre-committing)"
+    );
+
+    // verify can't resume commit
+    assert!(
+        resume_seal_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume commit(pre-committing)"
+    );
+
+    // block until state==Committed
+    poll_for_sector_sealing_status(
+        ptr,
+        601,
+        sector_builder_ffi_FFISealStatus_Committed,
+        cfg.max_secs_to_seal_sector,
+    );
+
+    // verify can't pre-commit
+    assert!(
+        seal_pre_commit(&mut ctx, ptr, 601, cfg.seal_ticket).is_err(),
+        "invalid transition: pre-commit(pre-committing)"
+    );
+
+    // verify can't commit
+    assert!(
+        seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),
+        "invalid transition: commit(pre-committing)"
+    );
+
+    // verify can't resume pre-commit
+    assert!(
+        resume_seal_pre_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume pre-commit(pre-committing)"
+    );
+
+    // verify can't resume commit
+    assert!(
+        resume_seal_commit(&mut ctx, ptr, 601).is_err(),
+        "invalid transition: resume commit(pre-committing)"
+    );
+
+    Ok(())
 }
 
 /// A test which simulates a sector builder being shutdown impolitely (SIGKILL).

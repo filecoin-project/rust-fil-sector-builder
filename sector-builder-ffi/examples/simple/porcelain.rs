@@ -173,7 +173,7 @@ pub(crate) unsafe fn poll_for_sector_sealing_status(
                 let _ = result_tx.send(PollComplete::Failure(s)).unwrap();
             }
 
-            thread::sleep(Duration::from_millis(1000));
+            thread::sleep(Duration::from_millis(100));
         }
     });
 

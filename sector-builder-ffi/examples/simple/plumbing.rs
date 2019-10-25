@@ -2,7 +2,7 @@ use std::path::Path;
 use std::ptr;
 use std::slice;
 
-use ffi_toolkit::{c_str_to_rust_str, free_c_str, rust_str_to_c_str};
+use ffi_toolkit::{free_c_str, rust_str_to_c_str};
 
 use crate::deallocator::*;
 use crate::provingset::*;
@@ -28,7 +28,7 @@ pub(crate) unsafe fn generate_post(
     defer!(sector_builder_ffi_destroy_generate_post_response(resp));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec())
@@ -59,7 +59,7 @@ pub(crate) unsafe fn verify_post(
     defer!(sector_builder_ffi_destroy_verify_post_response(resp));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).is_valid.clone())
@@ -79,7 +79,7 @@ pub(crate) unsafe fn get_sealed_sectors(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(slice::from_raw_parts((*resp).meta_ptr, (*resp).meta_len).to_vec())
@@ -98,7 +98,7 @@ pub(crate) unsafe fn get_staged_sectors(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(slice::from_raw_parts((*resp).sectors_ptr, (*resp).sectors_len).to_vec())
@@ -131,7 +131,7 @@ pub(crate) unsafe fn add_piece(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).sector_id.clone())
@@ -148,7 +148,7 @@ pub(crate) unsafe fn get_seal_status(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).seal_status_code.clone())
@@ -168,7 +168,7 @@ pub(crate) unsafe fn read_piece_from_sealed_sector(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec())
@@ -189,7 +189,7 @@ pub(crate) unsafe fn generate_piece_commitment(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).comm_p.clone())
@@ -206,7 +206,7 @@ pub(crate) unsafe fn resume_seal_pre_commit(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(())
@@ -226,7 +226,7 @@ pub(crate) unsafe fn resume_seal_commit(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).meta)
@@ -244,7 +244,7 @@ pub(crate) unsafe fn seal_pre_commit(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok(())
@@ -265,7 +265,7 @@ pub(crate) unsafe fn seal_commit(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).meta)
@@ -301,7 +301,7 @@ pub(crate) unsafe fn verify_seal(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).is_valid.clone())
@@ -357,7 +357,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
     })));
 
     if (*resp).status_code != 0 {
-        panic!("{}", c_str_to_rust_str((*resp).error_msg))
+        return Err((*resp).status_code);
     }
 
     Ok((*resp).sector_builder)

@@ -94,6 +94,16 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
     }
 }
 
+pub enum PreCommitMode {
+    StartFresh(SealTicket),
+    Resume,
+}
+
+pub enum CommitMode {
+    StartFresh(SealSeed),
+    Resume,
+}
+
 impl<T: KeyValueStore> SectorMetadataManager<T> {
     pub fn create_generate_post_task_proto(
         &self,
@@ -291,7 +301,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
     pub fn create_seal_pre_commit_task_proto(
         &mut self,
         sector_id: SectorId,
-        ticket: Option<SealTicket>,
+        mode: PreCommitMode,
     ) -> Result<SealPreCommitTaskPrototype> {
         let opt_meta = self
             .state
@@ -300,23 +310,24 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             .values_mut()
             .find(|s| s.sector_id == sector_id);
 
-        let r_meta =
-            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id));
+        let meta =
+            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
 
-        let (meta, ticket) = r_meta.and_then(|meta| match meta.seal_status.clone() {
-            SealStatus::PreCommittingPaused(t) => Ok((meta, t)),
-            SealStatus::AcceptingPieces => {
-                Ok((meta, ticket.expect("programmer error: must provide ticket")))
-            }
-            SealStatus::FullyPacked => {
-                Ok((meta, ticket.expect("programmer error: must provide ticket")))
-            }
-            _ => Err(format_err!(
-                "sector with id {} cannot be pre-committed (seal_status = {:?}",
+        let (meta, ticket) = match (mode, meta.seal_status.clone()) {
+            (PreCommitMode::StartFresh(t), SealStatus::AcceptingPieces) => Ok((meta, t)),
+            (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok((meta, t)),
+            (PreCommitMode::StartFresh(_), s) => Err(format_err!(
+                "cannot pre-commit sector with id {:?} and state {:?}",
                 sector_id,
-                meta.seal_status
+                s,
             )),
-        })?;
+            (PreCommitMode::Resume, SealStatus::PreCommittingPaused(t)) => Ok((meta, t)),
+            (PreCommitMode::Resume, s) => Err(format_err!(
+                "cannot resume pre-commit sector with id {:?} and state {:?}",
+                sector_id,
+                s,
+            )),
+        }?;
 
         let mgr = self.sector_store.manager();
 
@@ -344,7 +355,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
     pub fn create_seal_commit_task_proto(
         &mut self,
         sector_id: SectorId,
-        seed: Option<SealSeed>,
+        mode: CommitMode,
     ) -> Result<SealCommitTaskPrototype> {
         let opt_meta = self
             .state
@@ -353,25 +364,27 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             .values_mut()
             .find(|s| s.sector_id == sector_id);
 
-        let r_meta =
-            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id));
+        let meta =
+            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
 
-        let (meta, ticket, key, pre_commit, seed) =
-            r_meta.and_then(|meta| match meta.seal_status.clone() {
-                SealStatus::PreCommitted(t, k, p) => Ok((
-                    meta,
-                    t,
-                    k,
-                    p,
-                    seed.expect("programmer error: must provide a seed"),
-                )),
-                SealStatus::CommittingPaused(t, k, p, s) => Ok((meta, t, k, p, s)),
-                _ => Err(format_err!(
-                    "sector with id {} cannot be committed (seal_status = {:?}",
-                    sector_id,
-                    meta.seal_status
-                )),
-            })?;
+        let (meta, ticket, key, pre_commit, seed) = match (mode, meta.seal_status.clone()) {
+            (CommitMode::StartFresh(s), SealStatus::PreCommitted(t, k, p)) => {
+                Ok((meta, t, k, p, s))
+            }
+            (CommitMode::StartFresh(_), ss) => Err(format_err!(
+                "cannot commit sector with id {:?} and state {:?}",
+                sector_id,
+                ss,
+            )),
+            (CommitMode::Resume, SealStatus::CommittingPaused(t, k, p, s)) => {
+                Ok((meta, t, k, p, s))
+            }
+            (CommitMode::Resume, ss) => Err(format_err!(
+                "cannot commit sector with id {:?} and state {:?}",
+                sector_id,
+                ss,
+            )),
+        }?;
 
         // WARNING: Holding this data structure in memory is a stopgap until the SealPreCommitOutput
         // struct is serializable (which requires a working merkle tree cache). This method will

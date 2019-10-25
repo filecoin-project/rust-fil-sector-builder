@@ -279,7 +279,7 @@ workflows:
             - obtain_parameters
           filters:
             branches:
-              only: feat/integrate-interactive-porep
+              only: master
       - ffi_regression:
           name: e2e_1GiB (lifecycle)
           sector_size: 1073741824
@@ -289,7 +289,7 @@ workflows:
             - obtain_parameters
           filters:
             branches:
-              only: feat/integrate-interactive-porep
+              only: master
       - test_ignored_release:
           requires:
             - cargo_fetch

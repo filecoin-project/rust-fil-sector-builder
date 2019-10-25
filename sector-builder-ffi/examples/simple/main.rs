@@ -68,9 +68,24 @@ fn main() {
         .parse::<u64>()
         .expect("could not parse argument to a sector size");
 
-    unsafe { kill_restart_recovery(sector_size).unwrap() };
-    unsafe { sector_state_transitions(sector_size).unwrap() };
-    unsafe { sector_builder_lifecycle(sector_size).unwrap() };
+    let test_idx = env::args()
+        .collect::<Vec<String>>()
+        .get(2)
+        .expect("first argument must test index")
+        .parse::<usize>()
+        .expect("could not parse argument to a usize");
+
+    match test_idx {
+        0 => unsafe {
+            sector_state_transitions(sector_size).unwrap();
+            sector_state_transitions(sector_size).unwrap();
+            kill_restart_recovery(sector_size).unwrap();
+        },
+        1 => unsafe { sector_state_transitions(sector_size).unwrap() },
+        2 => unsafe { sector_builder_lifecycle(sector_size).unwrap() },
+        3 => unsafe { kill_restart_recovery(sector_size).unwrap() },
+        _ => panic!("test index {:?} not supported", test_idx),
+    }
 }
 
 /// A test which demonstrates the various state transitions for a staged sector

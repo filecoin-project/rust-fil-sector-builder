@@ -384,18 +384,27 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
 
     match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
         Ok(meta) => {
-            let ffi_meta: FFISealedSectorMetadata = meta.into();
+            let pieces = meta
+                .pieces
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<FFIPieceMetadata>>();
+
+            let proof = meta.proof.clone();
 
             response.status_code = FCPResponseStatus::FCPNoError;
-            response.comm_d = ffi_meta.comm_d;
-            response.comm_r = ffi_meta.comm_r;
-            response.pieces_len = ffi_meta.pieces_len;
-            response.pieces_ptr = ffi_meta.pieces_ptr;
-            response.proofs_len = ffi_meta.proofs_len;
-            response.proofs_ptr = ffi_meta.proofs_ptr;
-            response.seal_seed = ffi_meta.seal_seed;
-            response.seal_ticket = ffi_meta.seal_ticket;
-            response.sector_id = ffi_meta.sector_id;
+            response.comm_d = meta.comm_d;
+            response.comm_r = meta.comm_r;
+            response.pieces_len = pieces.len();
+            response.pieces_ptr = pieces.as_ptr();
+            response.proofs_len = proof.len();
+            response.proofs_ptr = proof.as_ptr();
+            response.seal_seed = meta.seed.into();
+            response.seal_ticket = meta.ticket.into();
+            response.sector_id = sector_id;
+
+            mem::forget(proof);
+            mem::forget(pieces);
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);

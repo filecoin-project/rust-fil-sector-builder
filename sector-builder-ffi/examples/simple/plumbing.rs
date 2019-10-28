@@ -387,6 +387,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
         c_staging_dir,
         c_sector_cache_root_dir,
         max_num_staged_sectors,
+        2,
     );
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_init_sector_builder_response(resp);

@@ -78,7 +78,7 @@ fn main() {
     match test_idx {
         0 => unsafe {
             sector_state_transitions(sector_size).unwrap();
-            sector_state_transitions(sector_size).unwrap();
+            sector_builder_lifecycle(sector_size).unwrap();
             kill_restart_recovery(sector_size).unwrap();
         },
         1 => unsafe { sector_state_transitions(sector_size).unwrap() },

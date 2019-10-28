@@ -352,8 +352,27 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     let mut response: types::SealPreCommitResponse = Default::default();
 
     match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
-        Ok(_) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        Ok(meta) => {
+            if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                let pieces = meta
+                    .pieces
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<FFIPieceMetadata>>();
+
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.comm_d = p.comm_d;
+                response.comm_r = p.comm_r;
+                response.pieces_len = pieces.len();
+                response.pieces_ptr = pieces.as_ptr();
+                response.seal_ticket = t.clone().into();
+                response.sector_id = sector_id;
+
+                mem::forget(pieces);
+            } else {
+                response.status_code = FCPResponseStatus::FCPReceiverError;
+                response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+            }
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);

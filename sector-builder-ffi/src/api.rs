@@ -121,6 +121,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                         block_height: meta.ticket.block_height,
                         ticket_bytes: meta.ticket.ticket_bytes,
                     };
+                    response.seal_seed = FFISealSeed {
+                        block_height: meta.seed.block_height,
+                        ticket_bytes: meta.seed.ticket_bytes,
+                    };
 
                     mem::forget(meta.proof);
                     mem::forget(pieces);

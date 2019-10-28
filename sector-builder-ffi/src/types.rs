@@ -279,13 +279,14 @@ pub struct GetSealStatusResponse {
     // sealed sector metadata
     pub comm_d: [u8; 32],
     pub comm_r: [u8; 32],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
+    pub proof_len: libc::size_t,
+    pub proof_ptr: *const u8,
+    pub seal_seed: FFISealSeed,
     pub seal_ticket: FFISealTicket,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
-    pub proof_len: libc::size_t,
-    pub proof_ptr: *const u8,
-    pub pieces_len: libc::size_t,
-    pub pieces_ptr: *const FFIPieceMetadata,
 }
 
 #[repr(C)]
@@ -325,6 +326,10 @@ impl Default for GetSealStatusResponse {
                 block_height: 0,
                 ticket_bytes: Default::default(),
             },
+            seal_seed: FFISealSeed {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
         }
     }
 }
@@ -351,6 +356,7 @@ pub struct FFISealedSectorMetadata {
     pub pieces_ptr: *const FFIPieceMetadata,
     pub proofs_len: libc::size_t,
     pub proofs_ptr: *const u8,
+    pub seal_seed: FFISealSeed,
     pub seal_ticket: FFISealTicket,
     pub sector_access: *const libc::c_char,
     pub sector_id: u64,
@@ -370,6 +376,10 @@ impl From<SealedSectorMetadata> for FFISealedSectorMetadata {
             seal_ticket: FFISealTicket {
                 block_height: meta.ticket.block_height,
                 ticket_bytes: meta.ticket.ticket_bytes,
+            },
+            seal_seed: FFISealSeed {
+                block_height: meta.seed.block_height,
+                ticket_bytes: meta.seed.ticket_bytes,
             },
             comm_d: meta.comm_d,
             comm_r: meta.comm_r,

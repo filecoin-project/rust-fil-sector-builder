@@ -120,7 +120,11 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
     }
 
     // Sends a pre-commit command to the main runloop and blocks until complete.
-    pub fn seal_pre_commit(&self, sector_id: SectorId, ticket: SealTicket) -> Result<()> {
+    pub fn seal_pre_commit(
+        &self,
+        sector_id: SectorId,
+        ticket: SealTicket,
+    ) -> Result<StagedSectorMetadata> {
         log_unrecov(self.run_blocking(|tx| SchedulerTask::SealPreCommit(sector_id, ticket, tx)))
     }
 
@@ -131,7 +135,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
 
     // Sends a pre-commit resumption command to the main runloop and blocks
     // until complete.
-    pub fn resume_seal_pre_commit(&self, sector_id: SectorId) -> Result<()> {
+    pub fn resume_seal_pre_commit(&self, sector_id: SectorId) -> Result<StagedSectorMetadata> {
         log_unrecov(self.run_blocking(|tx| SchedulerTask::ResumeSealPreCommit(sector_id, tx)))
     }
 

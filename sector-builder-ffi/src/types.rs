@@ -144,6 +144,12 @@ impl Default for InitSectorBuilderResponse {
 pub struct ResumeSealPreCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
+    pub comm_d: [u8; 32],
+    pub comm_r: [u8; 32],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
+    pub seal_ticket: FFISealTicket,
+    pub sector_id: u64,
 }
 
 impl Default for ResumeSealPreCommitResponse {
@@ -151,6 +157,15 @@ impl Default for ResumeSealPreCommitResponse {
         ResumeSealPreCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
+            comm_d: Default::default(),
+            comm_r: Default::default(),
+            pieces_len: 0,
+            pieces_ptr: ptr::null(),
+            seal_ticket: FFISealTicket {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            sector_id: 0,
         }
     }
 }
@@ -160,7 +175,15 @@ impl Default for ResumeSealPreCommitResponse {
 pub struct ResumeSealCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub meta: FFISealedSectorMetadata,
+    pub comm_d: [u8; 32],
+    pub comm_r: [u8; 32],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
+    pub proofs_len: libc::size_t,
+    pub proofs_ptr: *const u8,
+    pub seal_seed: FFISealSeed,
+    pub seal_ticket: FFISealTicket,
+    pub sector_id: u64,
 }
 
 impl Default for ResumeSealCommitResponse {
@@ -168,7 +191,21 @@ impl Default for ResumeSealCommitResponse {
         ResumeSealCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            meta: unsafe { mem::zeroed() },
+            comm_d: Default::default(),
+            comm_r: Default::default(),
+            pieces_len: 0,
+            pieces_ptr: ptr::null(),
+            proofs_len: 0,
+            proofs_ptr: ptr::null(),
+            seal_seed: FFISealSeed {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            seal_ticket: FFISealTicket {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            sector_id: 0,
         }
     }
 }
@@ -178,6 +215,12 @@ impl Default for ResumeSealCommitResponse {
 pub struct SealPreCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
+    pub comm_d: [u8; 32],
+    pub comm_r: [u8; 32],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
+    pub seal_ticket: FFISealTicket,
+    pub sector_id: u64,
 }
 
 impl Default for SealPreCommitResponse {
@@ -185,6 +228,15 @@ impl Default for SealPreCommitResponse {
         SealPreCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
+            comm_d: Default::default(),
+            comm_r: Default::default(),
+            pieces_len: 0,
+            pieces_ptr: ptr::null(),
+            seal_ticket: FFISealTicket {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            sector_id: 0,
         }
     }
 }
@@ -194,7 +246,15 @@ impl Default for SealPreCommitResponse {
 pub struct SealCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub meta: FFISealedSectorMetadata,
+    pub comm_d: [u8; 32],
+    pub comm_r: [u8; 32],
+    pub pieces_len: libc::size_t,
+    pub pieces_ptr: *const FFIPieceMetadata,
+    pub proofs_len: libc::size_t,
+    pub proofs_ptr: *const u8,
+    pub seal_seed: FFISealSeed,
+    pub seal_ticket: FFISealTicket,
+    pub sector_id: u64,
 }
 
 impl Default for SealCommitResponse {
@@ -202,7 +262,21 @@ impl Default for SealCommitResponse {
         SealCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            meta: unsafe { mem::zeroed() },
+            comm_d: Default::default(),
+            comm_r: Default::default(),
+            pieces_len: 0,
+            pieces_ptr: ptr::null(),
+            proofs_len: 0,
+            proofs_ptr: ptr::null(),
+            seal_seed: FFISealSeed {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            seal_ticket: FFISealTicket {
+                block_height: 0,
+                ticket_bytes: Default::default(),
+            },
+            sector_id: 0,
         }
     }
 }
@@ -479,6 +553,7 @@ impl std::io::Read for FileDescriptorRef {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FFISealSeed {
     /// the height at which we chose the ticket
@@ -502,6 +577,21 @@ impl From<FFISealSeed> for SealSeed {
     }
 }
 
+impl From<SealSeed> for FFISealSeed {
+    fn from(ss: SealSeed) -> Self {
+        match ss {
+            SealSeed {
+                block_height,
+                ticket_bytes,
+            } => FFISealSeed {
+                block_height,
+                ticket_bytes,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FFISealTicket {
     /// the height at which we chose the ticket
@@ -518,6 +608,20 @@ impl From<FFISealTicket> for SealTicket {
                 block_height,
                 ticket_bytes,
             } => sector_builder::SealTicket {
+                block_height,
+                ticket_bytes,
+            },
+        }
+    }
+}
+
+impl From<SealTicket> for FFISealTicket {
+    fn from(st: SealTicket) -> Self {
+        match st {
+            SealTicket {
+                block_height,
+                ticket_bytes,
+            } => FFISealTicket {
                 block_height,
                 ticket_bytes,
             },

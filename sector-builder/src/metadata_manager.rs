@@ -456,59 +456,67 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
 
     // Update metadata to reflect the seal pre-commit result. Propagates the
     // error from the proofs API call if one was present.
-    pub fn handle_seal_pre_commit_result(&mut self, result: SealPreCommitResult) -> Result<()> {
-        let staged_state = &mut self.state.staged;
+    pub fn handle_seal_pre_commit_result(
+        &mut self,
+        result: SealPreCommitResult,
+    ) -> Result<StagedSectorMetadata> {
+        let out = {
+            let staged_state = &mut self.state.staged;
 
-        let SealPreCommitResult {
-            sector_id,
-            proofs_api_call_result,
-        } = result;
+            let SealPreCommitResult {
+                sector_id,
+                proofs_api_call_result,
+            } = result;
 
-        match proofs_api_call_result {
-            Ok(output) => {
-                let SealPreCommitOutput {
-                    comm_r,
-                    comm_d,
-                    p_aux,
-                    t_aux,
-                } = output;
-
-                let staged_sector = staged_state
-                    .sectors
-                    .get_mut(&sector_id)
-                    .ok_or_else(|| format_err!("missing staged sector with id {}", &sector_id))?;
-
-                let ticket = staged_sector.seal_status.ticket().ok_or_else(|| {
-                    format_err!("failed to get ticket for sector with id {}", sector_id)
-                })?;
-
-                // TODO: Remove this once we can persist TemporaryAux
-                let _ = self.temporary_aux.insert(TemporaryAuxKey(sector_id), t_aux);
-
-                staged_sector.seal_status = SealStatus::PreCommitted(
-                    ticket.clone(),
-                    TemporaryAuxKey(sector_id),
-                    PersistablePreCommitOutput {
-                        comm_d,
+            match proofs_api_call_result {
+                Ok(output) => {
+                    let SealPreCommitOutput {
                         comm_r,
+                        comm_d,
                         p_aux,
-                    },
-                );
-            }
-            Err(err) => {
-                let staged_sector = staged_state
-                    .sectors
-                    .get_mut(&sector_id)
-                    .ok_or_else(|| format_err!("missing staged sector with id {}", &sector_id))?;
+                        t_aux,
+                    } = output;
 
-                staged_sector.seal_status =
-                    SealStatus::Failed(format!("seal_pre_commit failed: {:?}", err));
+                    let meta = staged_state.sectors.get_mut(&sector_id).ok_or_else(|| {
+                        format_err!("missing staged sector with id {}", &sector_id)
+                    })?;
+
+                    let ticket = meta.seal_status.ticket().ok_or_else(|| {
+                        format_err!("failed to get ticket for sector with id {}", sector_id)
+                    })?;
+
+                    // TODO: Remove this once we can persist TemporaryAux
+                    let _ = self.temporary_aux.insert(TemporaryAuxKey(sector_id), t_aux);
+
+                    meta.seal_status = SealStatus::PreCommitted(
+                        ticket.clone(),
+                        TemporaryAuxKey(sector_id),
+                        PersistablePreCommitOutput {
+                            comm_d,
+                            comm_r,
+                            p_aux,
+                        },
+                    );
+
+                    Ok(meta.clone())
+                }
+                Err(err) => {
+                    let staged_sector =
+                        staged_state.sectors.get_mut(&sector_id).ok_or_else(|| {
+                            format_err!("missing staged sector with id {}", &sector_id)
+                        })?;
+
+                    staged_sector.seal_status =
+                        SealStatus::Failed(format!("seal_pre_commit failed: {:?}", err));
+
+                    Err(err)
+                }
             }
-        }
+        };
 
         self.checkpoint().expects(FATAL_SNPSHT);
 
-        Ok(())
+        out
     }
 
     // Update metadata to reflect the seal commit result. Propagates the error

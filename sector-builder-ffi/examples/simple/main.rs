@@ -84,6 +84,7 @@ fn main() {
         1 => unsafe { sector_state_transitions(sector_size).unwrap() },
         2 => unsafe { sector_builder_lifecycle(sector_size).unwrap() },
         3 => unsafe { kill_restart_recovery(sector_size).unwrap() },
+        4 => unsafe { foo(sector_size).unwrap() },
         _ => panic!("test index {:?} not supported", test_idx),
     }
 }
@@ -296,195 +297,83 @@ unsafe fn sector_state_transitions(sector_size: u64) -> Result<(), failure::Erro
     Ok(())
 }
 
-/// A test which simulates a sector builder being shutdown impolitely (SIGKILL).
-/// Ensures that sealing jobs which had started but not yet completed are
-/// resumed and that sector builder metadata is successfully recreated from the
-/// last snapshot.
-///
-unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> {
-    let cfg = KillRestartTestConfiguration {
+unsafe fn foo(sector_size: u64) -> Result<(), failure::Error> {
+    let cfg = StateTransitionsTestConfiguration {
         sector_class: sector_builder_ffi_FFISectorClass {
             sector_size,
             porep_proof_partitions: 2,
         },
+        seal_seed: sector_builder_ffi_FFISealSeed {
+            block_height: 10,
+            ticket_bytes: [0u8; 32],
+        },
+        seal_ticket: sector_builder_ffi_FFISealTicket {
+            block_height: 15,
+            ticket_bytes: [1u8; 32],
+        },
+        half_sector_size_unpadded: ((508.0 / 1024.0) * (sector_size as f64)) as usize,
         max_num_staged_sectors: 2,
         max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+        prover_id: [4u8; 32],
     };
-
-    info!("running FFI test using cfg={:?}", cfg);
-
-    let metadata_dir_a = tempfile::tempdir()?;
-    let staging_dir_a = tempfile::tempdir()?;
-    let sealed_dir_a = tempfile::tempdir()?;
-    let sector_cache_root_dir_a = tempfile::tempdir()?;
-
-    // clone the directory-paths so that we can move them into the child process
-    let metadata_dir_a_c = metadata_dir_a.path().clone();
-    let staging_dir_a_c = staging_dir_a.path().clone();
-    let sealed_dir_a_c = sealed_dir_a.path().clone();
-    let sector_cache_root_dir_a_c = sector_cache_root_dir_a.path().clone();
-
-    let prover_id = [1u8; 32];
-    let seal_ticket = [1u8; 32];
-    let seal_seed = [3u8; 32];
 
     let mut ctx: Deallocator = Default::default();
 
-    // use an OS pipe so that we can communicate between processes
-    let (mut done_tx, mut done_rx) = pipe_channel::channel();
+    info!("running FFI test using cfg={:?}", cfg);
 
-    // Motivated by rust-fil-sector-builder/17.
-    match nix::unistd::fork() {
-        Ok(ForkResult::Parent { child, .. }) => {
-            let _ = done_rx.recv().unwrap();
+    let dir_meta = tempfile::tempdir()?;
+    let dir_stag = tempfile::tempdir()?;
+    let dir_seal = tempfile::tempdir()?;
+    let dir_cach = tempfile::tempdir()?;
 
-            // send SIGKILL to the child process
-            nix::sys::signal::kill(child, nix::sys::signal::SIGKILL).unwrap();
-
-            // wait for the child process to die
-            nix::sys::wait::waitpid(child, None).unwrap();
-        }
-        Ok(ForkResult::Child) => {
-            let max_user_bytes = get_max_user_bytes_per_staged_sector(cfg.sector_class.sector_size);
-
-            let mut ctx: Deallocator = Default::default();
-
-            let ptr = init_sector_builder(
-                &mut ctx,
-                &metadata_dir_a_c,
-                &staging_dir_a_c,
-                &sealed_dir_a_c,
-                &sector_cache_root_dir_a_c,
-                prover_id,
-                500,
-                cfg.sector_class,
-                cfg.max_num_staged_sectors,
-            )
-            .unwrap();
-
-            // add a piece which completely fills a staged sector
-            {
-                let MakePiece { file, bytes, key } = make_piece(max_user_bytes as usize);
-                assert_eq!(
-                    501,
-                    add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
-                );
-            }
-
-            // call seal_sector w/out blocking
-            seal_pre_commit_nonblocking(
-                ptr,
-                501,
-                sector_builder_ffi_FFISealTicket {
-                    block_height: 2,
-                    ticket_bytes: seal_ticket,
-                },
-            );
-
-            // block until sector sealing begins
-            poll_for_sector_sealing_status(
-                ptr,
-                501,
-                sector_builder_ffi_FFISealStatus_PreCommitting,
-                cfg.max_secs_to_seal_sector * 2,
-            );
-
-            std::mem::drop(ctx);
-
-            // send the completion signal
-            done_tx.send(true).expect("failed to send");
-
-            // loop until the parent kills this process
-            loop {
-                thread::sleep(Duration::from_secs(1));
-            }
-        }
-        Err(err) => panic!(err),
-    }
-
-    // initialize a sector builder
     let ptr = init_sector_builder(
-        &mut Default::default(),
-        &metadata_dir_a,
-        &staging_dir_a,
-        &sealed_dir_a,
-        &sector_cache_root_dir_a,
-        prover_id,
-        500,
+        &mut ctx,
+        &dir_meta,
+        &dir_stag,
+        &dir_seal,
+        &dir_cach,
+        cfg.prover_id,
+        600,
         cfg.sector_class,
         cfg.max_num_staged_sectors,
     )
     .unwrap();
-    defer!(sector_builder_ffi_destroy_sector_builder(ptr));
 
-    // resume sealing for all paused sectors
-    {
-        let mut n = 0;
-        for s in get_staged_sectors(&mut ctx, ptr).unwrap().iter() {
-            if s.seal_status_code == sector_builder_ffi_FFISealStatus_PreCommittingPaused {
-                resume_seal_pre_commit_nonblocking(ptr, s.sector_id);
-                n = n + 1;
-            }
-        }
-        assert_eq!(n, 1, "should have resumed but one pre-commit op");
-    }
+    // add a piece that half-fills a sector
+    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
+    assert_eq!(
+        601,
+        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
+    );
 
-    // wait until pre-commit completes
+    // add a piece that fills the remaining space
+    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
+    assert_eq!(
+        601,
+        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
+    );
+
+    // pre-commit sector
+    seal_pre_commit_nonblocking(ptr, 601, cfg.seal_ticket);
+
+    // block until state==PreCommitted
     poll_for_sector_sealing_status(
         ptr,
-        501,
+        601,
         sector_builder_ffi_FFISealStatus_PreCommitted,
-        cfg.max_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector,
     );
 
-    // commit sector
-    seal_commit_nonblocking(
-        ptr,
-        501,
-        sector_builder_ffi_FFISealSeed {
-            block_height: 10,
-            ticket_bytes: seal_seed,
-        },
-    );
+    // commit
+    seal_commit_nonblocking(ptr, 601, cfg.seal_seed);
 
-    // wait until commit completes
+    // block until state==Committed
     poll_for_sector_sealing_status(
         ptr,
-        501,
+        601,
         sector_builder_ffi_FFISealStatus_Committed,
-        cfg.max_secs_to_seal_sector * 2,
+        cfg.max_secs_to_seal_sector,
     );
-
-    // get sealed sector and verify the proof using the second ticket
-    {
-        let sealed_sector = get_sealed_sector(&mut ctx, ptr, 501);
-
-        let public_piece_info: Vec<sector_builder_ffi_FFIPublicPieceInfo> =
-            slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
-                .iter()
-                .map(|p| sector_builder_ffi_FFIPublicPieceInfo {
-                    comm_p: p.comm_p,
-                    num_bytes: p.num_bytes,
-                })
-                .collect();
-
-        assert!(
-            verify_seal(
-                &mut ctx,
-                cfg.sector_class.sector_size,
-                sealed_sector.sector_id,
-                seal_ticket,
-                seal_seed,
-                slice::from_raw_parts(sealed_sector.proofs_ptr, sealed_sector.proofs_len),
-                sealed_sector.comm_r,
-                sealed_sector.comm_d,
-                prover_id,
-                &public_piece_info,
-            )
-            .unwrap(),
-            "seal verification failed for sector with id 501"
-        );
-    }
 
     Ok(())
 }

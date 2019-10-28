@@ -331,6 +331,8 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
 
         let mgr = self.sector_store.manager();
 
+        let _ = mgr.new_sealed_sector_access(sector_id)?;
+
         let out = Ok(SealPreCommitTaskPrototype {
             cache_dir: mgr.cache_path(&meta.sector_access),
             piece_info: meta.pieces.iter().map(|x| (x.clone()).into()).collect(),

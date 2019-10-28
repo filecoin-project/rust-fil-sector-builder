@@ -199,9 +199,7 @@ impl<T: KeyValueStore, V: 'static + Send + std::io::Read> TaskHandler<T, V> {
                     .m
                     .create_generate_post_task_proto(&comm_rs, &chg_seed, faults);
 
-                let tx_c = tx.clone();
-
-                let callback = Box::new(move |r| tx_c.send(r).expects(FATAL_NOSEND));
+                let callback = Box::new(move |r| tx.send(r).expects(FATAL_NOSEND));
 
                 self.worker_tx
                     .send(WorkerTask::GeneratePoSt {

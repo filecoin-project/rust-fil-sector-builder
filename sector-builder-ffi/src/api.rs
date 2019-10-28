@@ -365,7 +365,7 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
                 response.comm_r = p.comm_r;
                 response.pieces_len = pieces.len();
                 response.pieces_ptr = pieces.as_ptr();
-                response.seal_ticket = t.clone().into();
+                response.seal_ticket = t.into();
                 response.sector_id = sector_id;
 
                 mem::forget(pieces);
@@ -466,7 +466,7 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
                 response.comm_r = p.comm_r;
                 response.pieces_len = pieces.len();
                 response.pieces_ptr = pieces.as_ptr();
-                response.seal_ticket = t.clone().into();
+                response.seal_ticket = t.into();
                 response.sector_id = sector_id;
 
                 mem::forget(pieces);

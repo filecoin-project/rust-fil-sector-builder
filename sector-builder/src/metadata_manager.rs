@@ -314,8 +314,8 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
 
         let ticket = match (mode, &meta.seal_status) {
-            (PreCommitMode::StartFresh(t), SealStatus::AcceptingPieces) => Ok(t.clone()),
-            (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok(t.clone()),
+            (PreCommitMode::StartFresh(t), SealStatus::AcceptingPieces) => Ok(t),
+            (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok(t),
             (PreCommitMode::StartFresh(_), s) => Err(format_err!(
                 "cannot pre-commit sector with id {:?} and state {:?}",
                 sector_id,
@@ -343,7 +343,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             ticket: ticket.clone(),
         });
 
-        meta.seal_status = SealStatus::PreCommitting(ticket.clone());
+        meta.seal_status = SealStatus::PreCommitting(ticket);
         self.checkpoint().expects(FATAL_SNPSHT);
 
         out
@@ -410,12 +410,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             ticket: ticket.clone(),
         });
 
-        meta.seal_status = SealStatus::Committing(
-            ticket.clone(),
-            key.clone(),
-            pre_commit.clone(),
-            seed.clone(),
-        );
+        meta.seal_status = SealStatus::Committing(ticket, key, pre_commit, seed);
         self.checkpoint().expects(FATAL_SNPSHT);
 
         out

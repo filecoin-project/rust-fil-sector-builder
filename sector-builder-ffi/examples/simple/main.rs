@@ -84,7 +84,6 @@ fn main() {
         1 => unsafe { sector_state_transitions(sector_size).unwrap() },
         2 => unsafe { sector_builder_lifecycle(sector_size).unwrap() },
         3 => unsafe { kill_restart_recovery(sector_size).unwrap() },
-        4 => unsafe { foo(sector_size).unwrap() },
         _ => panic!("test index {:?} not supported", test_idx),
     }
 }
@@ -292,87 +291,6 @@ unsafe fn sector_state_transitions(sector_size: u64) -> Result<(), failure::Erro
     assert!(
         resume_seal_commit(&mut ctx, ptr, 601).is_err(),
         "invalid transition: resume commit(pre-committing)"
-    );
-
-    Ok(())
-}
-
-unsafe fn foo(sector_size: u64) -> Result<(), failure::Error> {
-    let cfg = StateTransitionsTestConfiguration {
-        sector_class: sector_builder_ffi_FFISectorClass {
-            sector_size,
-            porep_proof_partitions: 2,
-        },
-        seal_seed: sector_builder_ffi_FFISealSeed {
-            block_height: 10,
-            ticket_bytes: [0u8; 32],
-        },
-        seal_ticket: sector_builder_ffi_FFISealTicket {
-            block_height: 15,
-            ticket_bytes: [1u8; 32],
-        },
-        half_sector_size_unpadded: ((508.0 / 1024.0) * (sector_size as f64)) as usize,
-        max_num_staged_sectors: 2,
-        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
-        prover_id: [4u8; 32],
-    };
-
-    let mut ctx: Deallocator = Default::default();
-
-    info!("running FFI test using cfg={:?}", cfg);
-
-    let dir_meta = tempfile::tempdir()?;
-    let dir_stag = tempfile::tempdir()?;
-    let dir_seal = tempfile::tempdir()?;
-    let dir_cach = tempfile::tempdir()?;
-
-    let ptr = init_sector_builder(
-        &mut ctx,
-        &dir_meta,
-        &dir_stag,
-        &dir_seal,
-        &dir_cach,
-        cfg.prover_id,
-        600,
-        cfg.sector_class,
-        cfg.max_num_staged_sectors,
-    )
-    .unwrap();
-
-    // add a piece that half-fills a sector
-    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
-    assert_eq!(
-        601,
-        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
-    );
-
-    // add a piece that fills the remaining space
-    let MakePiece { file, bytes, key } = make_piece(cfg.half_sector_size_unpadded);
-    assert_eq!(
-        601,
-        add_piece(&mut ctx, ptr, &key, file.as_file(), bytes.len(), 5000000).unwrap()
-    );
-
-    // pre-commit sector
-    seal_pre_commit_nonblocking(ptr, 601, cfg.seal_ticket);
-
-    // block until state==PreCommitted
-    poll_for_sector_sealing_status(
-        ptr,
-        601,
-        sector_builder_ffi_FFISealStatus_PreCommitted,
-        cfg.max_secs_to_seal_sector,
-    );
-
-    // commit
-    seal_commit_nonblocking(ptr, 601, cfg.seal_seed);
-
-    // block until state==Committed
-    poll_for_sector_sealing_status(
-        ptr,
-        601,
-        sector_builder_ffi_FFISealStatus_Committed,
-        cfg.max_secs_to_seal_sector,
     );
 
     Ok(())

@@ -271,13 +271,6 @@ workflows:
             - cargo_fetch
             - obtain_parameters
       - ffi_regression:
-          name: e2e_1KiB (temporary)
-          sector_size: 1024
-          test_idx: 4
-          requires:
-            - cargo_fetch
-            - obtain_parameters
-      - ffi_regression:
           name: e2e_256MiB (lifecycle)
           sector_size: 268435456
           test_idx: 2

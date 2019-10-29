@@ -121,6 +121,10 @@ pub unsafe extern "C" fn sector_builder_ffi_get_seal_status(
                         block_height: meta.ticket.block_height,
                         ticket_bytes: meta.ticket.ticket_bytes,
                     };
+                    response.seal_seed = FFISealSeed {
+                        block_height: meta.seed.block_height,
+                        ticket_bytes: meta.seed.ticket_bytes,
+                    };
 
                     mem::forget(meta.proof);
                     mem::forget(pieces);
@@ -301,6 +305,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
     staged_sector_dir: *const libc::c_char,
     sector_cache_root_dir: *const libc::c_char,
     max_num_staged_sectors: u8,
+    num_workers: u8,
 ) -> *mut types::InitSectorBuilderResponse {
     init_log();
 
@@ -313,6 +318,7 @@ pub unsafe extern "C" fn sector_builder_ffi_init_sector_builder(
         c_str_to_rust_str(staged_sector_dir).to_string(),
         c_str_to_rust_str(sector_cache_root_dir).to_string(),
         max_num_staged_sectors,
+        num_workers,
     );
 
     let mut response = types::InitSectorBuilderResponse::default();
@@ -348,8 +354,27 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     let mut response: types::SealPreCommitResponse = Default::default();
 
     match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
-        Ok(_) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        Ok(meta) => {
+            if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                let pieces = meta
+                    .pieces
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<FFIPieceMetadata>>();
+
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.comm_d = p.comm_d;
+                response.comm_r = p.comm_r;
+                response.pieces_len = pieces.len();
+                response.pieces_ptr = pieces.as_ptr();
+                response.seal_ticket = t.into();
+                response.sector_id = sector_id;
+
+                mem::forget(pieces);
+            } else {
+                response.status_code = FCPResponseStatus::FCPReceiverError;
+                response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+            }
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -380,8 +405,27 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
 
     match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
         Ok(meta) => {
+            let pieces = meta
+                .pieces
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<FFIPieceMetadata>>();
+
+            let proof = meta.proof.clone();
+
             response.status_code = FCPResponseStatus::FCPNoError;
-            response.meta = meta.into();
+            response.comm_d = meta.comm_d;
+            response.comm_r = meta.comm_r;
+            response.pieces_len = pieces.len();
+            response.pieces_ptr = pieces.as_ptr();
+            response.proofs_len = proof.len();
+            response.proofs_ptr = proof.as_ptr();
+            response.seal_seed = meta.seed.into();
+            response.seal_ticket = meta.ticket.into();
+            response.sector_id = sector_id;
+
+            mem::forget(proof);
+            mem::forget(pieces);
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -411,8 +455,27 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
     let mut response: types::ResumeSealPreCommitResponse = Default::default();
 
     match (*ptr).resume_seal_pre_commit(sector_id.into()) {
-        Ok(_) => {
-            response.status_code = FCPResponseStatus::FCPNoError;
+        Ok(meta) => {
+            if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                let pieces = meta
+                    .pieces
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<FFIPieceMetadata>>();
+
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.comm_d = p.comm_d;
+                response.comm_r = p.comm_r;
+                response.pieces_len = pieces.len();
+                response.pieces_ptr = pieces.as_ptr();
+                response.seal_ticket = t.into();
+                response.sector_id = sector_id;
+
+                mem::forget(pieces);
+            } else {
+                response.status_code = FCPResponseStatus::FCPReceiverError;
+                response.error_msg = rust_str_to_c_str("programmer error: invalid state");
+            }
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);
@@ -443,8 +506,18 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_commit(
 
     match (*ptr).resume_seal_commit(sector_id.into()) {
         Ok(meta) => {
+            let ffi_meta: FFISealedSectorMetadata = meta.into();
+
             response.status_code = FCPResponseStatus::FCPNoError;
-            response.meta = meta.into();
+            response.comm_d = ffi_meta.comm_d;
+            response.comm_r = ffi_meta.comm_r;
+            response.pieces_len = ffi_meta.pieces_len;
+            response.pieces_ptr = ffi_meta.pieces_ptr;
+            response.proofs_len = ffi_meta.proofs_len;
+            response.proofs_ptr = ffi_meta.proofs_ptr;
+            response.seal_seed = ffi_meta.seal_seed;
+            response.seal_ticket = ffi_meta.seal_ticket;
+            response.sector_id = ffi_meta.sector_id;
         }
         Err(err) => {
             let (code, ptr) = err_code_and_msg(&err);

@@ -244,7 +244,7 @@ pub(crate) unsafe fn resume_seal_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
 ) -> Result<
-    sector_builder_ffi_FFISealedSectorMetadata,
+    sector_builder_ffi_ResumeSealCommitResponse,
     (sector_builder_ffi_FCPResponseStatus, String),
 > {
     let resp = sector_builder_ffi_resume_seal_commit(ptr, sector_id);
@@ -259,7 +259,7 @@ pub(crate) unsafe fn resume_seal_commit(
         ));
     }
 
-    Ok((*resp).meta)
+    Ok(*resp)
 }
 
 pub(crate) unsafe fn seal_pre_commit(
@@ -267,7 +267,8 @@ pub(crate) unsafe fn seal_pre_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     ticket: sector_builder_ffi_FFISealTicket,
-) -> Result<(), (sector_builder_ffi_FCPResponseStatus, String)> {
+) -> Result<sector_builder_ffi_SealPreCommitResponse, (sector_builder_ffi_FCPResponseStatus, String)>
+{
     let resp = sector_builder_ffi_seal_pre_commit(ptr, sector_id, ticket);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_pre_commit_response(resp);
@@ -280,7 +281,7 @@ pub(crate) unsafe fn seal_pre_commit(
         ));
     }
 
-    Ok(())
+    Ok(*resp)
 }
 
 pub(crate) unsafe fn seal_commit(
@@ -288,10 +289,7 @@ pub(crate) unsafe fn seal_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     seed: sector_builder_ffi_FFISealSeed,
-) -> Result<
-    sector_builder_ffi_FFISealedSectorMetadata,
-    (sector_builder_ffi_FCPResponseStatus, String),
-> {
+) -> Result<sector_builder_ffi_SealCommitResponse, (sector_builder_ffi_FCPResponseStatus, String)> {
     let resp = sector_builder_ffi_seal_commit(ptr, sector_id, seed);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_commit_response(resp);
@@ -304,7 +302,7 @@ pub(crate) unsafe fn seal_commit(
         ));
     }
 
-    Ok((*resp).meta)
+    Ok(*resp)
 }
 
 pub(crate) unsafe fn verify_seal(
@@ -389,6 +387,7 @@ pub(crate) unsafe fn init_sector_builder<T: AsRef<Path>>(
         c_staging_dir,
         c_sector_cache_root_dir,
         max_num_staged_sectors,
+        2,
     );
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_init_sector_builder_response(resp);

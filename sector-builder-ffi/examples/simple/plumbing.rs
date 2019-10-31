@@ -315,7 +315,6 @@ pub(crate) unsafe fn verify_seal(
     comm_r: [u8; 32],
     comm_d: [u8; 32],
     prover_id: [u8; 32],
-    piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
 ) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
     let resp = sector_builder_ffi_verify_seal(
         sector_size,
@@ -327,8 +326,6 @@ pub(crate) unsafe fn verify_seal(
         &mut seed.clone(),
         proof.as_ptr(),
         proof.len(),
-        piece_info.as_ptr(),
-        piece_info.len(),
     );
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_verify_seal_response(resp);

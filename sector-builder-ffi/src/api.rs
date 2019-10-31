@@ -583,8 +583,6 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     seed: &[u8; 32],
     proof_ptr: *const u8,
     proof_len: libc::size_t,
-    pieces_ptr: *const filecoin_proofs_ffi::api::FFIPublicPieceInfo,
-    pieces_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
     catch_panic_response(|| {
         init_log();
@@ -599,8 +597,6 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
             sector_id,
             proof_ptr,
             proof_len,
-            pieces_ptr,
-            pieces_len,
         )
     })
 }

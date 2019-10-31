@@ -459,15 +459,6 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
     {
         let sealed_sector = get_sealed_sector(&mut ctx, ptr, 501);
 
-        let public_piece_info: Vec<sector_builder_ffi_FFIPublicPieceInfo> =
-            slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
-                .iter()
-                .map(|p| sector_builder_ffi_FFIPublicPieceInfo {
-                    comm_p: p.comm_p,
-                    num_bytes: p.num_bytes,
-                })
-                .collect();
-
         assert!(
             verify_seal(
                 &mut ctx,
@@ -479,7 +470,6 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
                 sealed_sector.comm_r,
                 sealed_sector.comm_d,
                 prover_id,
-                &public_piece_info,
             )
             .unwrap(),
             "seal verification failed for sector with id 501"
@@ -756,15 +746,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 124);
 
-        let public_piece_info: Vec<sector_builder_ffi_FFIPublicPieceInfo> =
-            slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
-                .iter()
-                .map(|p| sector_builder_ffi_FFIPublicPieceInfo {
-                    comm_p: p.comm_p,
-                    num_bytes: p.num_bytes,
-                })
-                .collect();
-
         assert!(
             verify_seal(
                 &mut ctx,
@@ -776,7 +757,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_r,
                 sealed_sector.comm_d,
                 prover_id,
-                &public_piece_info,
             )
             .unwrap(),
             "seal verification failed for sector with id 124"
@@ -787,15 +767,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     {
         let sealed_sector = get_sealed_sector(&mut ctx, b_ptr, 125);
 
-        let public_piece_info: Vec<sector_builder_ffi_FFIPublicPieceInfo> =
-            slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
-                .iter()
-                .map(|p| sector_builder_ffi_FFIPublicPieceInfo {
-                    comm_p: p.comm_p,
-                    num_bytes: p.num_bytes,
-                })
-                .collect();
-
         assert!(
             verify_seal(
                 &mut ctx,
@@ -807,7 +778,6 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
                 sealed_sector.comm_r,
                 sealed_sector.comm_d,
                 prover_id,
-                &public_piece_info
             )
             .unwrap(),
             "seal verification failed for sector with id 125"

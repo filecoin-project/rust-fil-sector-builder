@@ -17,6 +17,7 @@ use crate::types::{
     FFISealedSectorHealth, FFISealedSectorMetadata, FFISectorClass, FileDescriptorRef,
     SectorBuilder,
 };
+use filecoin_proofs_ffi::api::FFIPublicPieceInfo;
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
@@ -583,8 +584,6 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     seed: &[u8; 32],
     proof_ptr: *const u8,
     proof_len: libc::size_t,
-    pieces_ptr: *const filecoin_proofs_ffi::api::FFIPublicPieceInfo,
-    pieces_len: libc::size_t,
 ) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
     catch_panic_response(|| {
         init_log();
@@ -599,9 +598,21 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
             sector_id,
             proof_ptr,
             proof_len,
-            pieces_ptr,
-            pieces_len,
         )
+    })
+}
+
+/// Generate a data commitment for a sector containing the provided pieces.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_generate_data_commitment(
+    sector_size: u64,
+    pieces_ptr: *const FFIPublicPieceInfo,
+    pieces_len: libc::size_t,
+) -> *mut filecoin_proofs_ffi::responses::GenerateDataCommitmentResponse {
+    catch_panic_response(|| {
+        init_log();
+        filecoin_proofs_ffi::api::generate_data_commitment(sector_size, pieces_ptr, pieces_len)
     })
 }
 
@@ -744,6 +755,15 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_re
     ptr: *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_generate_piece_commitment_response(ptr)
+}
+
+/// Deallocates a GenerateDataCommitmentResponse.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_data_commitment_response(
+    ptr: *mut filecoin_proofs_ffi::responses::GenerateDataCommitmentResponse,
+) {
+    filecoin_proofs_ffi::api::destroy_generate_data_commitment_response(ptr)
 }
 
 /// Destroys a SectorBuilder.

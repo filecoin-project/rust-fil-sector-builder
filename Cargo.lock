@@ -750,7 +750,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs-ffi"
 version = "0.7.3"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=temp/before-gpu-support#cc18adf42bd46731511bcf821e186bd7449b174a"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=temp/before-gpu-support#a5017a846c8393d13b09da8dabca7f684f6fbd7b"
 dependencies = [
  "cbindgen 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "drop_struct_macro_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",

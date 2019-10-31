@@ -455,6 +455,33 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
         cfg.max_secs_to_seal_sector * 2,
     );
 
+    // generate comm_d and ensure that it matches what was generated while
+    // sealing
+    {
+        let sealed_sector = get_sealed_sector(&mut ctx, ptr, 501);
+
+        let public_piece_info: Vec<sector_builder_ffi_FFIPublicPieceInfo> =
+            slice::from_raw_parts(sealed_sector.pieces_ptr, sealed_sector.pieces_len)
+                .iter()
+                .map(|p| sector_builder_ffi_FFIPublicPieceInfo {
+                    comm_p: p.comm_p,
+                    num_bytes: p.num_bytes,
+                })
+                .collect();
+
+        let x =
+            generate_data_commitment(&mut ctx, cfg.sector_class.sector_size, &public_piece_info);
+
+        if let Ok(comm_d) = x {
+            assert_eq!(
+                comm_d, sealed_sector.comm_d,
+                "generated data commitment and seal output comm_d don't match"
+            );
+        } else {
+            panic!("generate_data_commitment failed: {:?}", x);
+        }
+    }
+
     // get sealed sector and verify the proof using the second ticket
     {
         let sealed_sector = get_sealed_sector(&mut ctx, ptr, 501);

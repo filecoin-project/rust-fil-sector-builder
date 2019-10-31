@@ -195,6 +195,30 @@ pub(crate) unsafe fn read_piece_from_sealed_sector(
     Ok(slice::from_raw_parts((*resp).data_ptr, (*resp).data_len).to_vec())
 }
 
+pub(crate) unsafe fn generate_data_commitment(
+    ctx: &mut Deallocator,
+    sector_size: u64,
+    piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
+) -> Result<[u8; 32], (sector_builder_ffi_FCPResponseStatus, String)> {
+    let resp = sector_builder_ffi_generate_data_commitment(
+        sector_size,
+        piece_info.as_ptr(),
+        piece_info.len(),
+    );
+    defer!(ctx.destructors.push(Box::new(move || {
+        sector_builder_ffi_destroy_generate_data_commitment_response(resp);
+    })));
+
+    if (*resp).status_code != 0 {
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
+    }
+
+    Ok((*resp).comm_d.clone())
+}
+
 #[cfg(not(target_os = "windows"))]
 pub(crate) unsafe fn generate_piece_commitment(
     ctx: &mut Deallocator,

@@ -691,6 +691,18 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         cfg.max_secs_to_seal_sector * 2,
     );
 
+    // verify that we now have some sealed sectors
+    {
+        let sealed_sectors = get_sealed_sectors(&mut ctx, a_ptr, false).unwrap();
+        let staged_sectors = get_staged_sectors(&mut ctx, a_ptr).unwrap();
+        assert_eq!(2, sealed_sectors.len(), "expected two sealed sectors");
+        assert_eq!(
+            0,
+            staged_sectors.len(),
+            "expected zero staged sectors (they're all sealed)"
+        );
+    }
+
     // drop the first sector builder, relinquishing any locks on persistence
     destroy_sector_builder(a_ptr);
 

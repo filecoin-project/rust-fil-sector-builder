@@ -8,17 +8,6 @@ jobs:
     resource_class: 2xlarge+
     steps:
       - configure_env
-      - install_rust
-      - run:
-          name: Install paramcache from head of rust-fil-proofs master branch
-          command: |
-            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
-            which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
-      - restore_parameter_cache
-      - run:
-          name: Generate Groth parameters and verifying keys
-          command: paramcache
-      - save_parameter_cache
 
   cargo_fetch:
     docker:

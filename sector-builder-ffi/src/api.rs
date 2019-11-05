@@ -17,7 +17,7 @@ use crate::types::{
     FFISealedSectorHealth, FFISealedSectorMetadata, FFISectorClass, FileDescriptorRef,
     SectorBuilder,
 };
-use filecoin_proofs_ffi::api::FFIPublicPieceInfo;
+use filecoin_proofs_ffi::types::FFIPublicPieceInfo;
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
@@ -81,7 +81,7 @@ pub unsafe extern "C" fn sector_builder_ffi_get_max_user_bytes_per_staged_sector
 pub unsafe extern "C" fn sector_builder_ffi_generate_piece_commitment(
     piece_fd_raw: libc::c_int,
     unpadded_piece_size: u64,
-) -> *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse {
+) -> *mut filecoin_proofs_ffi::types::GeneratePieceCommitmentResponse {
     catch_panic_response(|| {
         init_log();
 
@@ -584,7 +584,7 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_seal(
     seed: &[u8; 32],
     proof_ptr: *const u8,
     proof_len: libc::size_t,
-) -> *mut filecoin_proofs_ffi::responses::VerifySealResponse {
+) -> *mut filecoin_proofs_ffi::types::VerifySealResponse {
     catch_panic_response(|| {
         init_log();
 
@@ -609,7 +609,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_data_commitment(
     sector_size: u64,
     pieces_ptr: *const FFIPublicPieceInfo,
     pieces_len: libc::size_t,
-) -> *mut filecoin_proofs_ffi::responses::GenerateDataCommitmentResponse {
+) -> *mut filecoin_proofs_ffi::types::GenerateDataCommitmentResponse {
     catch_panic_response(|| {
         init_log();
         filecoin_proofs_ffi::api::generate_data_commitment(sector_size, pieces_ptr, pieces_len)
@@ -630,7 +630,7 @@ pub unsafe extern "C" fn sector_builder_ffi_verify_post(
     flattened_comm_rs_len: libc::size_t,
     proof_ptr: *const u8,
     proof_len: libc::size_t,
-) -> *mut filecoin_proofs_ffi::responses::VerifyPoStResponse {
+) -> *mut filecoin_proofs_ffi::types::VerifyPoStResponse {
     catch_panic_response(|| {
         init_log();
 
@@ -733,7 +733,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_commit_response(
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_seal_response(
-    ptr: *mut filecoin_proofs_ffi::responses::VerifySealResponse,
+    ptr: *mut filecoin_proofs_ffi::types::VerifySealResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_verify_seal_response(ptr)
 }
@@ -742,7 +742,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_seal_response(
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_post_response(
-    ptr: *mut filecoin_proofs_ffi::responses::VerifyPoStResponse,
+    ptr: *mut filecoin_proofs_ffi::types::VerifyPoStResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_verify_post_response(ptr)
 }
@@ -752,7 +752,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_verify_post_response(
 #[no_mangle]
 #[cfg(not(target_os = "windows"))]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_response(
-    ptr: *mut filecoin_proofs_ffi::responses::GeneratePieceCommitmentResponse,
+    ptr: *mut filecoin_proofs_ffi::types::GeneratePieceCommitmentResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_generate_piece_commitment_response(ptr)
 }
@@ -761,7 +761,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_piece_commitment_re
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_data_commitment_response(
-    ptr: *mut filecoin_proofs_ffi::responses::GenerateDataCommitmentResponse,
+    ptr: *mut filecoin_proofs_ffi::types::GenerateDataCommitmentResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_generate_data_commitment_response(ptr)
 }

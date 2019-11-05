@@ -47,7 +47,7 @@ pub(crate) unsafe fn verify_post(
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
 
-    let resp = sector_builder_ffi_verify_post(
+    let resp = sector_builder_ffi_reexported_verify_post(
         sector_size,
         &mut challenge_seed.clone(),
         sector_ids.as_ptr(),
@@ -59,7 +59,9 @@ pub(crate) unsafe fn verify_post(
         proof.as_ptr(),
         proof.len(),
     );
-    defer!(sector_builder_ffi_destroy_verify_post_response(resp));
+    defer!(sector_builder_ffi_reexported_destroy_verify_post_response(
+        resp
+    ));
 
     if (*resp).status_code != 0 {
         return Err((
@@ -200,13 +202,13 @@ pub(crate) unsafe fn generate_data_commitment(
     sector_size: u64,
     piece_info: &[sector_builder_ffi_FFIPublicPieceInfo],
 ) -> Result<[u8; 32], (sector_builder_ffi_FCPResponseStatus, String)> {
-    let resp = sector_builder_ffi_generate_data_commitment(
+    let resp = sector_builder_ffi_reexported_generate_data_commitment(
         sector_size,
         piece_info.as_ptr(),
         piece_info.len(),
     );
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_generate_data_commitment_response(resp);
+        sector_builder_ffi_reexported_destroy_generate_data_commitment_response(resp);
     })));
 
     if (*resp).status_code != 0 {
@@ -228,9 +230,10 @@ pub(crate) unsafe fn generate_piece_commitment(
     use std::os::unix::io::AsRawFd;
     let c_piece_fd = piece_file.as_raw_fd();
 
-    let resp = sector_builder_ffi_generate_piece_commitment(c_piece_fd, piece_len as u64);
+    let resp =
+        sector_builder_ffi_reexported_generate_piece_commitment(c_piece_fd, piece_len as u64);
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_generate_piece_commitment_response(resp);
+        sector_builder_ffi_reexported_destroy_generate_piece_commitment_response(resp);
     })));
 
     if (*resp).status_code != 0 {
@@ -340,7 +343,7 @@ pub(crate) unsafe fn verify_seal(
     comm_d: [u8; 32],
     prover_id: [u8; 32],
 ) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
-    let resp = sector_builder_ffi_verify_seal(
+    let resp = sector_builder_ffi_reexported_verify_seal(
         sector_size,
         &mut comm_r.clone(),
         &mut comm_d.clone(),
@@ -352,7 +355,7 @@ pub(crate) unsafe fn verify_seal(
         proof.len(),
     );
     defer!(ctx.destructors.push(Box::new(move || {
-        sector_builder_ffi_destroy_verify_seal_response(resp);
+        sector_builder_ffi_reexported_destroy_verify_seal_response(resp);
     })));
 
     if (*resp).status_code != 0 {
@@ -366,7 +369,7 @@ pub(crate) unsafe fn verify_seal(
 }
 
 pub(crate) unsafe fn get_max_user_bytes_per_staged_sector(sector_size: u64) -> u64 {
-    sector_builder_ffi_get_max_user_bytes_per_staged_sector(sector_size)
+    sector_builder_ffi_reexported_get_max_user_bytes_per_staged_sector(sector_size)
 }
 
 pub(crate) unsafe fn destroy_sector_builder(mut p: *mut sector_builder_ffi_SectorBuilder) {

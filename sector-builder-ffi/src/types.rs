@@ -8,8 +8,8 @@ use failure::Error;
 use ffi_toolkit::{
     code_and_message_impl, free_c_str, rust_str_to_c_str, CodeAndMessage, FCPResponseStatus,
 };
-use filecoin_proofs::SectorClass;
 use libc;
+
 use sector_builder::{
     PieceMetadata, SealSeed, SealStatus, SealTicket, SealedSectorHealth, SealedSectorMetadata,
     SectorBuilderErr, SectorManagerErr,
@@ -530,26 +530,6 @@ impl Default for GetStagedSectorsResponse {
 }
 
 code_and_message_impl!(GetStagedSectorsResponse);
-
-#[repr(C)]
-pub struct FFISectorClass {
-    sector_size: u64,
-    porep_proof_partitions: u8,
-}
-
-impl From<FFISectorClass> for SectorClass {
-    fn from(fsc: FFISectorClass) -> Self {
-        let FFISectorClass {
-            sector_size,
-            porep_proof_partitions,
-        } = fsc;
-
-        SectorClass(
-            filecoin_proofs::SectorSize(sector_size),
-            filecoin_proofs::PoRepProofPartitions(porep_proof_partitions),
-        )
-    }
-}
 
 pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
 

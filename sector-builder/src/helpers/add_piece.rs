@@ -73,7 +73,7 @@ pub fn add_piece<U: Read>(
         .map(|p| p.num_bytes)
         .collect::<Vec<UnpaddedBytesAmount>>();
 
-    let (num_bytes, comm_p) = filecoin_proofs::add_piece(
+    let (_, comm_p) = filecoin_proofs::add_piece(
         &mut cursor,
         &mut staged_file,
         piece_bytes_len,
@@ -83,7 +83,7 @@ pub fn add_piece<U: Read>(
     ssm.pieces.push(metadata::PieceMetadata {
         piece_key,
         comm_p,
-        num_bytes,
+        num_bytes: piece_bytes_len,
     });
 
     Ok(ssm.sector_id)

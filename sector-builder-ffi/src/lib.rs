@@ -5,4 +5,5 @@
 extern crate log;
 
 pub mod api;
+pub mod reexported;
 pub mod types;

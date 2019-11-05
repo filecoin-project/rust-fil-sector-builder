@@ -651,6 +651,108 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_verify_post(
 /// TODO: document
 ///
 #[no_mangle]
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_write_with_alignment(
+    src_fd: libc::c_int,
+    src_size: u64,
+    dst_fd: libc::c_int,
+    existing_piece_sizes_ptr: *const u64,
+    existing_piece_sizes_len: libc::size_t,
+) -> *mut filecoin_proofs_ffi::types::WriteWithAlignmentResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        filecoin_proofs_ffi::api::write_with_alignment(
+            src_fd,
+            src_size,
+            dst_fd,
+            existing_piece_sizes_ptr,
+            existing_piece_sizes_len,
+        )
+    })
+}
+
+/// TODO: document
+///
+#[no_mangle]
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_write_without_alignment(
+    src_fd: libc::c_int,
+    src_size: u64,
+    dst_fd: libc::c_int,
+) -> *mut filecoin_proofs_ffi::types::WriteWithoutAlignmentResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        filecoin_proofs_ffi::api::write_without_alignment(src_fd, src_size, dst_fd)
+    })
+}
+
+/// TODO: document
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_seal_pre_commit(
+    sector_class: filecoin_proofs_ffi::types::FFISectorClass,
+    cache_dir_path: *const libc::c_char,
+    staged_sector_path: *const libc::c_char,
+    sealed_sector_path: *const libc::c_char,
+    sector_id: u64,
+    prover_id: &[u8; 32],
+    ticket: &[u8; 32],
+    pieces_ptr: *const FFIPublicPieceInfo,
+    pieces_len: libc::size_t,
+) -> *mut filecoin_proofs_ffi::types::SealPreCommitResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        filecoin_proofs_ffi::api::seal_pre_commit(
+            sector_class,
+            cache_dir_path,
+            staged_sector_path,
+            sealed_sector_path,
+            sector_id,
+            prover_id,
+            ticket,
+            pieces_ptr,
+            pieces_len,
+        )
+    })
+}
+
+/// TODO: document
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_seal_commit(
+    sector_class: filecoin_proofs_ffi::types::FFISectorClass,
+    cache_dir_path: *const libc::c_char,
+    sector_id: u64,
+    prover_id: &[u8; 32],
+    ticket: &[u8; 32],
+    seed: &[u8; 32],
+    pieces_ptr: *const filecoin_proofs_ffi::types::FFIPublicPieceInfo,
+    pieces_len: libc::size_t,
+    spco: filecoin_proofs_ffi::types::FFISealPreCommitOutput,
+) -> *mut filecoin_proofs_ffi::types::SealCommitResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        filecoin_proofs_ffi::api::seal_commit(
+            sector_class,
+            cache_dir_path,
+            sector_id,
+            prover_id,
+            ticket,
+            seed,
+            pieces_ptr,
+            pieces_len,
+            spco,
+        )
+    })
+}
+
+/// TODO: document
+///
+#[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_unseal(
     sector_class: filecoin_proofs_ffi::types::FFISectorClass,
     sealed_sector_path: *const libc::c_char,
@@ -820,6 +922,34 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_commit_sector_re
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_unseal_response(
     ptr: *mut filecoin_proofs_ffi::types::UnsealResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_seal_commit_response(
+    ptr: *mut filecoin_proofs_ffi::types::SealCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_seal_pre_commit_response(
+    ptr: *mut filecoin_proofs_ffi::types::SealPreCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_write_without_alignment_response(
+    ptr: *mut filecoin_proofs_ffi::types::WriteWithoutAlignmentResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_write_with_alignment_response(
+    ptr: *mut filecoin_proofs_ffi::types::WriteWithAlignmentResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

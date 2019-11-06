@@ -590,6 +590,9 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
             return raw_ptr(response);
         }
 
+        // copy bytes from the provided pointer to Rust-managed space
+        let proof = std::slice::from_raw_parts(proof_ptr, proof_len).to_vec();
+
         let pieces: Vec<PieceMetadata> = Vec::from_raw_parts(pieces_ptr, pieces_len, pieces_len)
             .iter()
             .map(|meta| PieceMetadata {
@@ -612,7 +615,7 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
                 comm_r_last: comm_r_last.unwrap(),
             },
             pieces,
-            Vec::from_raw_parts(proof_ptr, proof_len, proof_len).to_vec(),
+            proof,
         ) {
             Ok(_) => {
                 response.status_code = FCPResponseStatus::FCPNoError;

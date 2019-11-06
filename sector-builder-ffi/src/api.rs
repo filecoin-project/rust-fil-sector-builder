@@ -612,10 +612,7 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
                 comm_r_last: comm_r_last.unwrap(),
             },
             pieces,
-            Vec::from_raw_parts(proof_ptr, proof_len, proof_len)
-                .iter()
-                .cloned()
-                .collect(),
+            Vec::from_raw_parts(proof_ptr, proof_len, proof_len).to_vec(),
         ) {
             Ok(_) => {
                 response.status_code = FCPResponseStatus::FCPNoError;

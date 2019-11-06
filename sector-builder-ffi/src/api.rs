@@ -578,14 +578,14 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
 
         if comm_r_last.is_err() {
             response.status_code = FCPResponseStatus::FCPUnclassifiedError;
-            response.error_msg = rust_str_to_c_str("cannot xform comm_r_last to PedersenDomain");
+            response.error_msg = rust_str_to_c_str("cannot convert comm_r_last to PedersenDomain");
             info!("seal_commit: finish");
             return raw_ptr(response);
         }
 
         if comm_c.is_err() {
             response.status_code = FCPResponseStatus::FCPUnclassifiedError;
-            response.error_msg = rust_str_to_c_str("cannot xform comm_c to PedersenDomain");
+            response.error_msg = rust_str_to_c_str("cannot convert comm_c to PedersenDomain");
             info!("seal_commit: finish");
             return raw_ptr(response);
         }

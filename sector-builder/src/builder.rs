@@ -200,11 +200,12 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
 
     // Increments the manager's nonce and returns a newly-provisioned sector id.
     pub fn acquire_sector_id(&self) -> Result<SectorId> {
-        log_unrecov(self.run_blocking(|tx| SchedulerTask::AcquireSectorId(tx)))
+        log_unrecov(self.run_blocking(SchedulerTask::AcquireSectorId))
     }
 
     // Imports a sector sealed elsewhere. This function uses the rename system
     // call to take ownership of the cache directory and sealed sector file.
+    #[allow(clippy::too_many_arguments)]
     pub fn import_sealed_sector(
         &self,
         sector_id: SectorId,

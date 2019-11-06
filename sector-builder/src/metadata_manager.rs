@@ -451,6 +451,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn import_sector(
         &mut self,
         sector_id: SectorId,
@@ -578,7 +579,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             )
         })?;
 
-        let _ = std::fs::rename(&sector_cache_dir, &new_cache_path).map_err(|err| {
+        std::fs::rename(&sector_cache_dir, &new_cache_path).map_err(|err| {
             format_err!(
                 "import failed to move sector cache path (id = {:?}) from {:?} to {:?} (err = {:?})",
                 sector_id,

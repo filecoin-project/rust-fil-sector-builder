@@ -294,8 +294,10 @@ pub(crate) unsafe fn seal_pre_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     ticket: sector_builder_ffi_FFISealTicket,
-) -> Result<sector_builder_ffi_SealPreCommitResponse, (sector_builder_ffi_FCPResponseStatus, String)>
-{
+) -> Result<
+    sector_builder_ffi_SectorBuilderSealPreCommitResponse,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
     let resp = sector_builder_ffi_seal_pre_commit(ptr, sector_id, ticket);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_pre_commit_response(resp);
@@ -316,7 +318,10 @@ pub(crate) unsafe fn seal_commit(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     sector_id: u64,
     seed: sector_builder_ffi_FFISealSeed,
-) -> Result<sector_builder_ffi_SealCommitResponse, (sector_builder_ffi_FCPResponseStatus, String)> {
+) -> Result<
+    sector_builder_ffi_SectorBuilderSealCommitResponse,
+    (sector_builder_ffi_FCPResponseStatus, String),
+> {
     let resp = sector_builder_ffi_seal_commit(ptr, sector_id, seed);
     defer!(ctx.destructors.push(Box::new(move || {
         sector_builder_ffi_destroy_seal_commit_response(resp);

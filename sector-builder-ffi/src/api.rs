@@ -323,13 +323,13 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
     seal_ticket: FFISealTicket,
-) -> *mut types::SealPreCommitResponse {
+) -> *mut types::SectorBuilderSealPreCommitResponse {
     catch_panic_response(|| {
         init_log();
 
         info!("seal_pre_commit: {}", "start");
 
-        let mut response: types::SealPreCommitResponse = Default::default();
+        let mut response: types::SectorBuilderSealPreCommitResponse = Default::default();
 
         match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
             Ok(meta) => {
@@ -373,13 +373,13 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_commit(
     ptr: *mut SectorBuilder,
     sector_id: u64,
     seal_seed: FFISealSeed,
-) -> *mut types::SealCommitResponse {
+) -> *mut types::SectorBuilderSealCommitResponse {
     catch_panic_response(|| {
         init_log();
 
         info!("seal_commit: {}", "start");
 
-        let mut response: types::SealCommitResponse = Default::default();
+        let mut response: types::SectorBuilderSealCommitResponse = Default::default();
 
         match (*ptr).seal_commit(sector_id.into(), seal_seed.into()) {
             Ok(meta) => {
@@ -597,14 +597,14 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_read_piece_from_sealed_secto
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_pre_commit_response(
-    ptr: *mut types::SealPreCommitResponse,
+    ptr: *mut types::SectorBuilderSealPreCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_commit_response(
-    ptr: *mut types::SealCommitResponse,
+    ptr: *mut types::SectorBuilderSealCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
@@ -634,7 +634,7 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_sector_builder(ptr: *mut Sec
 ///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_pre_commit_sector_response(
-    ptr: *mut types::SealPreCommitResponse,
+    ptr: *mut types::SectorBuilderSealPreCommitResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

@@ -213,7 +213,7 @@ code_and_message_impl!(ResumeSealCommitResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct SealPreCommitResponse {
+pub struct SectorBuilderSealPreCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub comm_d: [u8; 32],
@@ -224,9 +224,9 @@ pub struct SealPreCommitResponse {
     pub sector_id: u64,
 }
 
-impl Default for SealPreCommitResponse {
-    fn default() -> SealPreCommitResponse {
-        SealPreCommitResponse {
+impl Default for SectorBuilderSealPreCommitResponse {
+    fn default() -> SectorBuilderSealPreCommitResponse {
+        SectorBuilderSealPreCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             comm_d: Default::default(),
@@ -242,11 +242,11 @@ impl Default for SealPreCommitResponse {
     }
 }
 
-code_and_message_impl!(SealPreCommitResponse);
+code_and_message_impl!(SectorBuilderSealPreCommitResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct SealCommitResponse {
+pub struct SectorBuilderSealCommitResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub comm_d: [u8; 32],
@@ -260,9 +260,9 @@ pub struct SealCommitResponse {
     pub sector_id: u64,
 }
 
-impl Default for SealCommitResponse {
-    fn default() -> SealCommitResponse {
-        SealCommitResponse {
+impl Default for SectorBuilderSealCommitResponse {
+    fn default() -> SectorBuilderSealCommitResponse {
+        SectorBuilderSealCommitResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             comm_d: Default::default(),
@@ -284,7 +284,7 @@ impl Default for SealCommitResponse {
     }
 }
 
-code_and_message_impl!(SealCommitResponse);
+code_and_message_impl!(SectorBuilderSealCommitResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]

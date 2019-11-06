@@ -593,12 +593,13 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
         // copy bytes from the provided pointer to Rust-managed space
         let proof = std::slice::from_raw_parts(proof_ptr, proof_len).to_vec();
 
-        let pieces: Vec<PieceMetadata> = Vec::from_raw_parts(pieces_ptr, pieces_len, pieces_len)
+        // map FFIPieceMetadata to PieceMetadata so caller can dealloc
+        let pieces = std::slice::from_raw_parts(pieces_ptr, pieces_len)
             .iter()
-            .map(|meta| PieceMetadata {
-                piece_key: c_str_to_rust_str(meta.piece_key).to_string(),
-                num_bytes: UnpaddedBytesAmount(meta.num_bytes),
-                comm_p: meta.comm_p,
+            .map(|x| PieceMetadata {
+                piece_key: c_str_to_rust_str(x.piece_key).into_owned(),
+                num_bytes: UnpaddedBytesAmount(x.num_bytes),
+                comm_p: x.comm_p,
             })
             .collect();
 

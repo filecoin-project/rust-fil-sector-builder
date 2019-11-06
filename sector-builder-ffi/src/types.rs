@@ -531,6 +531,44 @@ impl Default for GetStagedSectorsResponse {
 
 code_and_message_impl!(GetStagedSectorsResponse);
 
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct ImportSealedSectorResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+}
+
+impl Default for ImportSealedSectorResponse {
+    fn default() -> ImportSealedSectorResponse {
+        ImportSealedSectorResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+        }
+    }
+}
+
+code_and_message_impl!(ImportSealedSectorResponse);
+
+#[repr(C)]
+#[derive(DropStructMacro)]
+pub struct AcquireSectorIdResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub sector_id: u64,
+}
+
+impl Default for AcquireSectorIdResponse {
+    fn default() -> AcquireSectorIdResponse {
+        AcquireSectorIdResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            sector_id: 0,
+        }
+    }
+}
+
+code_and_message_impl!(AcquireSectorIdResponse);
+
 pub type SectorBuilder = sector_builder::SectorBuilder<FileDescriptorRef>;
 
 /// Filedescriptor, that does not drop the file descriptor when dropped.

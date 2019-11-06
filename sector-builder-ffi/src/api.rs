@@ -4,18 +4,22 @@ use std::slice::from_raw_parts;
 
 // The `CodeAndMessage` trait is needed for `catch_panic_response`
 use ffi_toolkit::{
-    c_str_to_rust_str, catch_panic_response, raw_ptr, rust_str_to_c_str, CodeAndMessage,
-    FCPResponseStatus,
+    c_str_to_pbuf, c_str_to_rust_str, catch_panic_response, raw_ptr, rust_str_to_c_str,
+    CodeAndMessage, FCPResponseStatus,
 };
 use libc;
 use once_cell::sync::OnceCell;
-use sector_builder::{GetSealedSectorResult, SealStatus, SecondsSinceEpoch};
+use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
 use crate::types::{
     self, err_code_and_msg, FFIPieceMetadata, FFISealSeed, FFISealStatus, FFISealTicket,
     FFISealedSectorHealth, FFISealedSectorMetadata, FileDescriptorRef, SectorBuilder,
 };
+use filecoin_proofs::UnpaddedBytesAmount;
+use storage_proofs::hasher::pedersen::PedersenDomain;
+use storage_proofs::hasher::Domain;
+use storage_proofs::stacked::PersistentAux;
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
@@ -542,6 +546,121 @@ pub unsafe extern "C" fn sector_builder_ffi_read_piece_from_sealed_sector(
     })
 }
 
+/// Imports a sector sealed elsewhere and takes ownership of its metadata,
+/// cache directory, and sealed sector file.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
+    ptr: *mut SectorBuilder,
+    sector_id: u64,
+    sector_cache_dir_path: *const libc::c_char,
+    sealed_sector_path: *const libc::c_char,
+    seal_ticket: FFISealTicket,
+    seal_seed: FFISealSeed,
+    comm_r: &[u8; 32],
+    comm_d: &[u8; 32],
+    p_aux_comm_c: &[u8; 32],
+    p_aux_comm_r_last: &[u8; 32],
+    proof_ptr: *mut u8,
+    proof_len: libc::size_t,
+    pieces_ptr: *mut FFIPieceMetadata,
+    pieces_len: libc::size_t,
+) -> *mut types::ImportSealedSectorResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        info!("import_sealed_sector: {}", "start");
+
+        let mut response: types::ImportSealedSectorResponse = Default::default();
+
+        let comm_r_last = PedersenDomain::try_from_bytes(p_aux_comm_r_last);
+        let comm_c = PedersenDomain::try_from_bytes(p_aux_comm_c);
+
+        if comm_r_last.is_err() {
+            response.status_code = FCPResponseStatus::FCPUnclassifiedError;
+            response.error_msg = rust_str_to_c_str("cannot convert comm_r_last to PedersenDomain");
+            info!("seal_commit: finish");
+            return raw_ptr(response);
+        }
+
+        if comm_c.is_err() {
+            response.status_code = FCPResponseStatus::FCPUnclassifiedError;
+            response.error_msg = rust_str_to_c_str("cannot convert comm_c to PedersenDomain");
+            info!("seal_commit: finish");
+            return raw_ptr(response);
+        }
+
+        // copy bytes from the provided pointer to Rust-managed space
+        let proof = std::slice::from_raw_parts(proof_ptr, proof_len).to_vec();
+
+        // map FFIPieceMetadata to PieceMetadata so caller can dealloc
+        let pieces = std::slice::from_raw_parts(pieces_ptr, pieces_len)
+            .iter()
+            .map(|x| PieceMetadata {
+                piece_key: c_str_to_rust_str(x.piece_key).into_owned(),
+                num_bytes: UnpaddedBytesAmount(x.num_bytes),
+                comm_p: x.comm_p,
+            })
+            .collect();
+
+        match (*ptr).import_sealed_sector(
+            SectorId::from(sector_id),
+            c_str_to_pbuf(sector_cache_dir_path),
+            c_str_to_pbuf(sealed_sector_path),
+            seal_ticket.into(),
+            seal_seed.into(),
+            *comm_r,
+            *comm_d,
+            PersistentAux {
+                comm_c: comm_c.unwrap(),
+                comm_r_last: comm_r_last.unwrap(),
+            },
+            pieces,
+            proof,
+        ) {
+            Ok(_) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
+        }
+
+        info!("import_sealed_sector: {}", "finish");
+
+        raw_ptr(response)
+    })
+}
+
+/// Acquires a new sector id to be used when sealing out-of-band.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_acquire_sector_id(
+    ptr: *mut SectorBuilder,
+) -> *mut types::AcquireSectorIdResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        info!("acquire_sector_id: {}", "start");
+
+        let mut response: types::AcquireSectorIdResponse = Default::default();
+
+        match (*ptr).acquire_sector_id() {
+            Ok(sector_id) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+                response.sector_id = sector_id.into();
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
+        }
+
+        info!("acquire_sector_id: {}", "finish");
+
+        raw_ptr(response)
+    })
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // DESTRUCTORS
 //////////////
@@ -644,6 +763,24 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_seal_pre_commit_sector_respo
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_resume_seal_commit_sector_response(
     ptr: *mut types::ResumeSealCommitResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+/// Destroys a ImportSealedSectorResponse.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_import_sealed_sector_response(
+    ptr: *mut types::ImportSealedSectorResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+/// Destroys a AcquireSectorIdResponse.
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_acquire_sector_id_response(
+    ptr: *mut types::AcquireSectorIdResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

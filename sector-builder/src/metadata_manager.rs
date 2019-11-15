@@ -204,6 +204,10 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             .map_err(failure::Error::from)?;
 
         Ok(UnsealTaskPrototype {
+            cache_dir: self
+                .sector_store
+                .manager()
+                .cache_path(&sealed_sector.sector_access),
             comm_d: sealed_sector.comm_d,
             porep_config: self.sector_store.proofs_config().porep_config,
             source_path: self

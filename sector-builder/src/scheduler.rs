@@ -159,6 +159,7 @@ impl<T: KeyValueStore, V: 'static + Send + std::io::Read> TaskHandler<T, V> {
                         self.worker_tx
                             .send(WorkerTask::Unseal {
                                 comm_d: proto.comm_d,
+                                cache_dir: proto.cache_dir,
                                 destination_path: proto.destination_path,
                                 piece_len: proto.piece_len,
                                 piece_start_byte: proto.piece_start_byte,

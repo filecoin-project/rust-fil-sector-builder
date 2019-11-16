@@ -16,9 +16,9 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 [dependencies]
 drop_struct_macro_derive = "0.4.0"
 ffi-toolkit = "0.4.0"
-filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "master" }
-storage-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "master" }
-filecoin-proofs-ffi = { git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git", branch = "master" }
+filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "feat/election-post" }
+storage-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "feat/election-post" }
+filecoin-proofs-ffi = { git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git", branch = "feat/election-post" }
 sector-builder = { path = "../sector-builder" }
 failure = "0.1.5"
 libc = "0.2.58"

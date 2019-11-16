@@ -241,7 +241,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
     catch_panic_response(|| {
         init_log();
 
-        info!("generate_post: {}", "start");
+        info!("generate_candidates: {}", "start");
 
         let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
         let faults = from_raw_parts(faults_ptr, faults_len)
@@ -278,7 +278,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
                 response.candidates_len = ffi_candidates.len();
                 response.candidates_ptr = ffi_candidates.as_ptr();
 
-                // we'll free this stuff when we free the GeneratePoSTResponse
+                // we'll free this stuff when we free the GenerateCandidatesResponse
                 mem::forget(ffi_candidates);
             }
             Err(err) => {
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
             }
         }
 
-        info!("generate_post: {}", "finish");
+        info!("generate_candidates: {}", "finish");
 
         raw_ptr(response)
     })

@@ -71,7 +71,7 @@ fn main() {
     let test_idx = env::args()
         .collect::<Vec<String>>()
         .get(2)
-        .expect("first argument must test index")
+        .expect("first argument must be test index")
         .parse::<usize>()
         .expect("could not parse argument to a usize");
 

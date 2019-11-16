@@ -16,12 +16,12 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 [dependencies]
 drop_struct_macro_derive = "0.4.0"
 ffi-toolkit = "0.4.0"
-#filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "master" }
-#storage-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "master" }
-storage-proofs =  { path = "/home/nemo/pl/rust-fil-proofs/storage-proofs" }
-filecoin-proofs =  { path = "/home/nemo/pl/rust-fil-proofs/filecoin-proofs" }
-#filecoin-proofs-ffi = { git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git", branch = "master" }
-filecoin-proofs-ffi = { path = "/home/nemo/pl/rust-fil-proofs-ffi" }
+# FIXME: This should be master branch or a version
+filecoin-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "mt-persistence" }
+# FIXME: This should be master branch or a version
+storage-proofs = { git = "https://github.com/filecoin-project/rust-fil-proofs.git", branch = "mt-persistence" }
+# FIXME: This should be master branch or a version
+filecoin-proofs-ffi = { git = "https://github.com/filecoin-project/rust-fil-proofs-ffi.git", branch = "add-cache-path" }
 sector-builder = { path = "../sector-builder" }
 failure = "0.1.5"
 libc = "0.2.58"

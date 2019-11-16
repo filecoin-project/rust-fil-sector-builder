@@ -106,7 +106,7 @@ unsafe fn sector_state_transitions(sector_size: u64) -> Result<(), failure::Erro
         },
         half_sector_size_unpadded: ((508.0 / 1024.0) * (sector_size as f64)) as usize,
         max_num_staged_sectors: 2,
-        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+        max_secs_to_seal_sector: 60 * 60 * 2, // TODO: something more rigorous
         prover_id: [4u8; 32],
     };
 
@@ -314,7 +314,7 @@ unsafe fn kill_restart_recovery(sector_size: u64) -> Result<(), failure::Error> 
             porep_proof_partitions: 2,
         },
         max_num_staged_sectors: 2,
-        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+        max_secs_to_seal_sector: 60 * 60 * 2, // TODO: something more rigorous
     };
 
     info!("running FFI test using cfg={:?}", cfg);
@@ -536,7 +536,7 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
         third_piece_bytes: ((508.0 / 1024.0) * (sector_size as f64)) as usize,
 
         max_num_staged_sectors: 2,
-        max_secs_to_seal_sector: 60 * 60, // TODO: something more rigorous
+        max_secs_to_seal_sector: 60 * 60 * 2, // TODO: something more rigorous
     };
 
     info!("running FFI test using cfg={:?}", cfg);

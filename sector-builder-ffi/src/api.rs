@@ -9,6 +9,7 @@ use ffi_toolkit::{
 };
 use libc;
 use once_cell::sync::OnceCell;
+use paired::bls12_381::Bls12;
 use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
@@ -18,6 +19,7 @@ use crate::types::{
 };
 use filecoin_proofs::{Candidate, UnpaddedBytesAmount};
 use filecoin_proofs_ffi::types::FFICandidate;
+use storage_proofs::fr32::fr_into_bytes;
 use storage_proofs::hasher::pedersen::PedersenDomain;
 use storage_proofs::hasher::Domain;
 use storage_proofs::stacked::PersistentAux;
@@ -267,9 +269,13 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
                             sector_challenge_index,
                         } = c;
 
+                        let mut partial_ticket_arr = [0u8; 32];
+                        partial_ticket_arr
+                            .copy_from_slice(&fr_into_bytes::<Bls12>(&partial_ticket)[..]);
+
                         FFICandidate {
                             sector_id: u64::from(sector_id),
-                            partial_ticket,
+                            partial_ticket: partial_ticket_arr,
                             ticket,
                             sector_challenge_index,
                         }
@@ -308,13 +314,13 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
         info!("generate_post: {}", "start");
 
         let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
-        let winners = from_raw_parts(winners_ptr, winners_len)
+        let result = from_raw_parts(winners_ptr, winners_len)
             .iter()
             .cloned()
-            .map(Into::into)
-            .collect();
-
-        let result = (*ptr).generate_post(&comm_rs, challenge_seed, winners);
+            .map(|c| c.try_into_candidate())
+            .collect::<Result<_, _>>()
+            .map_err(Into::into)
+            .and_then(|winners| (*ptr).generate_post(&comm_rs, challenge_seed, winners));
 
         let mut response = types::GeneratePoStResponse::default();
 

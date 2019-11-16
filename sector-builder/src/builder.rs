@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::types::{PoRepConfig, PoStConfig, SectorClass};
-use filecoin_proofs::{Candidate, Winner};
+use filecoin_proofs::Candidate;
 use storage_proofs::sector::SectorId;
 
 use crate::constants::*;
@@ -204,7 +204,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         &self,
         comm_rs: &[[u8; 32]],
         challenge_seed: &[u8; 32],
-        winners: Vec<Winner>,
+        winners: Vec<Candidate>,
     ) -> Result<Vec<Vec<u8>>> {
         log_unrecov(self.run_blocking(|tx| {
             SchedulerTask::GeneratePoSt(Vec::from(comm_rs), *challenge_seed, winners, tx)

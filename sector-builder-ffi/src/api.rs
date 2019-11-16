@@ -13,12 +13,11 @@ use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSi
 use storage_proofs::sector::SectorId;
 
 use crate::types::{
-    self, err_code_and_msg, FFICandidate, FFIPieceMetadata, FFISealSeed, FFISealStatus,
-    FFISealTicket, FFISealedSectorHealth, FFISealedSectorMetadata, FileDescriptorRef,
-    SectorBuilder,
+    self, err_code_and_msg, FFIPieceMetadata, FFISealSeed, FFISealStatus, FFISealTicket,
+    FFISealedSectorHealth, FFISealedSectorMetadata, FileDescriptorRef, SectorBuilder,
 };
 use filecoin_proofs::{Candidate, UnpaddedBytesAmount};
-use filecoin_proofs_ffi::types::FFIWinner;
+use filecoin_proofs_ffi::types::FFICandidate;
 use storage_proofs::hasher::pedersen::PedersenDomain;
 use storage_proofs::hasher::Domain;
 use storage_proofs::stacked::PersistentAux;
@@ -266,20 +265,13 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
                             partial_ticket,
                             ticket,
                             sector_challenge_index,
-                            data,
                         } = c;
-
-                        let data_ptr = data.as_ptr();
-                        let data_len = data.len();
-                        mem::forget(data);
 
                         FFICandidate {
                             sector_id: u64::from(sector_id),
                             partial_ticket,
                             ticket,
                             sector_challenge_index,
-                            data_ptr,
-                            data_len,
                         }
                     })
                     .collect();
@@ -307,7 +299,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
-    winners_ptr: *const FFIWinner,
+    winners_ptr: *const FFICandidate,
     winners_len: libc::size_t,
 ) -> *mut types::GeneratePoStResponse {
     catch_panic_response(|| {

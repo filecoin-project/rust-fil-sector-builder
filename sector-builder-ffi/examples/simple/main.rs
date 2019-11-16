@@ -871,9 +871,9 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
 
         let candidates = generate_candidates(b_ptr, cseed, &p_set).unwrap();
 
-        let winners: Vec<sector_builder_ffi_FFIWinner> = candidates
+        let winners: Vec<sector_builder_ffi_FFICandidate> = candidates
             .into_iter()
-            .map(|c| sector_builder_ffi_FFIWinner {
+            .map(|c| sector_builder_ffi_FFICandidate {
                 sector_id: c.sector_id,
                 partial_ticket: c.partial_ticket,
                 ticket: c.ticket,

@@ -1,7 +1,6 @@
 use std::ffi::CString;
 use std::mem;
 use std::ptr;
-use std::slice::from_raw_parts;
 
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
@@ -11,7 +10,7 @@ use ffi_toolkit::{
 };
 use libc;
 
-use filecoin_proofs::Candidate;
+use filecoin_proofs_ffi::types::FFICandidate;
 use sector_builder::{
     PieceMetadata, SealSeed, SealStatus, SealTicket, SealedSectorHealth, SealedSectorMetadata,
     SectorBuilderErr, SectorManagerErr,
@@ -34,39 +33,6 @@ impl From<SealedSectorHealth> for FFISealedSectorHealth {
             SealedSectorHealth::ErrorInvalidChecksum => FFISealedSectorHealth::ErrorInvalidChecksum,
             SealedSectorHealth::ErrorInvalidLength => FFISealedSectorHealth::ErrorInvalidLength,
             SealedSectorHealth::ErrorMissing => FFISealedSectorHealth::ErrorMissing,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone)]
-pub struct FFICandidate {
-    pub sector_id: u64,
-    pub partial_ticket: [u8; 32],
-    pub ticket: [u8; 32],
-    pub sector_challenge_index: u64,
-    pub data_ptr: *const u8,
-    pub data_len: libc::size_t,
-}
-
-impl From<FFICandidate> for Candidate {
-    fn from(x: FFICandidate) -> Self {
-        let FFICandidate {
-            sector_id,
-            partial_ticket,
-            ticket,
-            sector_challenge_index,
-            data_ptr,
-            data_len,
-        } = x;
-
-        let data = unsafe { from_raw_parts(data_ptr, data_len).to_vec() };
-        Candidate {
-            sector_id: sector_id.into(),
-            partial_ticket,
-            ticket,
-            sector_challenge_index,
-            data,
         }
     }
 }

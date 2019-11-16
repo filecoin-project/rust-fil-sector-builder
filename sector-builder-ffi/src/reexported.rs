@@ -83,7 +83,7 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_verify_post(
     flattened_comm_rs_len: libc::size_t,
     flattened_proofs_ptr: *const u8,
     flattened_proofs_len: libc::size_t,
-    winners_ptr: *const filecoin_proofs_ffi::types::FFIWinner,
+    winners_ptr: *const filecoin_proofs_ffi::types::FFICandidate,
     winners_len: libc::size_t,
     prover_id: &[u8; 32],
 ) -> *mut filecoin_proofs_ffi::types::VerifyPoStResponse {

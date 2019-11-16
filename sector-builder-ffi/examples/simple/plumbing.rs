@@ -43,7 +43,7 @@ pub(crate) unsafe fn generate_post(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
-    winners: &[sector_builder_ffi_FFIWinner],
+    winners: &[sector_builder_ffi_FFICandidate],
 ) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
     let flattened_comm_rs = proving_set.flattened_comm_rs();
 
@@ -72,7 +72,7 @@ pub(crate) unsafe fn verify_post(
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
     flattened_proofs: &[u8],
-    winners: &[sector_builder_ffi_FFIWinner],
+    winners: &[sector_builder_ffi_FFICandidate],
     prover_id: &[u8; 32],
 ) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
     let sector_ids = proving_set.all_sector_ids();

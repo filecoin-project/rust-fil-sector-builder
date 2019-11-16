@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
-use filecoin_proofs::{error::ExpectWithBacktrace, Candidate, Winner};
+use filecoin_proofs::{error::ExpectWithBacktrace, Candidate};
 use storage_proofs::sector::SectorId;
 
 use crate::error::Result;
@@ -63,8 +63,8 @@ pub enum SchedulerTask<T: Read + Send> {
     ),
     GeneratePoSt(
         Vec<[u8; 32]>,
-        [u8; 32],    // seed
-        Vec<Winner>, // winners
+        [u8; 32],       // seed
+        Vec<Candidate>, // winners
         mpsc::SyncSender<Result<Vec<Vec<u8>>>>,
     ),
     RetrievePiece(String, mpsc::SyncSender<Result<Vec<u8>>>),

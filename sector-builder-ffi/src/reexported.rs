@@ -73,35 +73,48 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_generate_data_commitment(
 }
 
 /// Verifies that a proof-of-spacetime is valid.
-///
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_verify_post(
     sector_size: u64,
-    challenge_seed: &[u8; 32],
+    randomness: &[u8; 32],
     sector_ids_ptr: *const u64,
     sector_ids_len: libc::size_t,
-    faulty_sector_ids_ptr: *const u64,
-    faulty_sector_ids_len: libc::size_t,
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
-    proof_ptr: *const u8,
-    proof_len: libc::size_t,
+    flattened_proofs_ptr: *const u8,
+    flattened_proofs_len: libc::size_t,
+    winners_ptr: *const filecoin_proofs_ffi::types::FFIWinner,
+    winners_len: libc::size_t,
+    prover_id: &[u8; 32],
 ) -> *mut filecoin_proofs_ffi::types::VerifyPoStResponse {
     catch_panic_response(|| {
         crate::api::init_log();
 
         filecoin_proofs_ffi::api::verify_post(
             sector_size,
-            challenge_seed,
+            randomness,
             sector_ids_ptr,
             sector_ids_len,
-            faulty_sector_ids_ptr,
-            faulty_sector_ids_len,
             flattened_comm_rs_ptr,
             flattened_comm_rs_len,
-            proof_ptr,
-            proof_len,
+            flattened_proofs_ptr,
+            flattened_proofs_len,
+            winners_ptr,
+            winners_len,
+            &prover_id,
         )
+    })
+}
+
+/// Finalizes a partial_ticket.
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_finalize_ticket(
+    partial_ticket: &[u8; 32],
+) -> *mut filecoin_proofs_ffi::types::FinalizeTicketResponse {
+    catch_panic_response(|| {
+        crate::api::init_log();
+
+        filecoin_proofs_ffi::api::finalize_ticket(partial_ticket)
     })
 }
 
@@ -248,6 +261,13 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_verify_post_respo
     ptr: *mut filecoin_proofs_ffi::types::VerifyPoStResponse,
 ) {
     filecoin_proofs_ffi::api::destroy_verify_post_response(ptr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_finalize_ticket_response(
+    ptr: *mut filecoin_proofs_ffi::types::FinalizeTicketResponse,
+) {
+    filecoin_proofs_ffi::api::destroy_finalize_ticket_response(ptr)
 }
 
 /// Deallocates a GeneratePieceCommitmentResponse.

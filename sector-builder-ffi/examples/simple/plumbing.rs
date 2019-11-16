@@ -9,21 +9,51 @@ use crate::provingset::*;
 
 include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 
-pub(crate) unsafe fn generate_post(
+pub(crate) unsafe fn generate_candidates(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
-) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
+) -> Result<Vec<sector_builder_ffi_FFICandidate>, (sector_builder_ffi_FCPResponseStatus, String)> {
     let flattened_comm_rs = proving_set.flattened_comm_rs();
     let faulty_sector_ids = proving_set.faulty_sector_ids();
 
-    let resp = sector_builder_ffi_generate_post(
+    let resp = sector_builder_ffi_generate_candidates(
         ptr,
         flattened_comm_rs.as_ptr(),
         flattened_comm_rs.len(),
         &mut challenge_seed.clone(),
         faulty_sector_ids.as_ptr(),
         faulty_sector_ids.len(),
+    );
+    defer!(sector_builder_ffi_destroy_generate_candidates_response(
+        resp
+    ));
+
+    if (*resp).status_code != 0 {
+        return Err((
+            (*resp).status_code,
+            c_str_to_rust_str((*resp).error_msg).to_string(),
+        ));
+    }
+
+    Ok(slice::from_raw_parts((*resp).candidates_ptr, (*resp).candidates_len).to_vec())
+}
+
+pub(crate) unsafe fn generate_post(
+    ptr: *mut sector_builder_ffi_SectorBuilder,
+    challenge_seed: [u8; 32],
+    proving_set: &ProvingSet,
+    winners: &[sector_builder_ffi_FFIWinner],
+) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
+    let flattened_comm_rs = proving_set.flattened_comm_rs();
+
+    let resp = sector_builder_ffi_generate_post(
+        ptr,
+        flattened_comm_rs.as_ptr(),
+        flattened_comm_rs.len(),
+        &mut challenge_seed.clone(),
+        winners.as_ptr(),
+        winners.len(),
     );
     defer!(sector_builder_ffi_destroy_generate_post_response(resp));
 
@@ -34,30 +64,32 @@ pub(crate) unsafe fn generate_post(
         ));
     }
 
-    Ok(slice::from_raw_parts((*resp).proof_ptr, (*resp).proof_len).to_vec())
+    Ok(slice::from_raw_parts((*resp).flattened_proofs_ptr, (*resp).flattened_proofs_len).to_vec())
 }
 
 pub(crate) unsafe fn verify_post(
     sector_size: u64,
     challenge_seed: [u8; 32],
     proving_set: &ProvingSet,
-    proof: &[u8],
+    flattened_proofs: &[u8],
+    winners: &[sector_builder_ffi_FFIWinner],
+    prover_id: &[u8; 32],
 ) -> Result<bool, (sector_builder_ffi_FCPResponseStatus, String)> {
     let sector_ids = proving_set.all_sector_ids();
     let flattened_comm_rs = proving_set.flattened_comm_rs();
-    let faulty_sector_ids = proving_set.faulty_sector_ids();
 
     let resp = sector_builder_ffi_reexported_verify_post(
         sector_size,
         &mut challenge_seed.clone(),
         sector_ids.as_ptr(),
         sector_ids.len(),
-        faulty_sector_ids.as_ptr(),
-        faulty_sector_ids.len(),
         flattened_comm_rs.as_ptr(),
         flattened_comm_rs.len(),
-        proof.as_ptr(),
-        proof.len(),
+        flattened_proofs.as_ptr(),
+        flattened_proofs.len(),
+        winners.as_ptr(),
+        winners.len(),
+        &mut prover_id.clone(),
     );
     defer!(sector_builder_ffi_reexported_destroy_verify_post_response(
         resp

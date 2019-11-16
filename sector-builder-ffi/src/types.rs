@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::mem;
 use std::ptr;
+use std::slice::from_raw_parts;
 
 use drop_struct_macro_derive::DropStructMacro;
 use failure::Error;
@@ -10,6 +11,7 @@ use ffi_toolkit::{
 };
 use libc;
 
+use filecoin_proofs::Candidate;
 use sector_builder::{
     PieceMetadata, SealSeed, SealStatus, SealTicket, SealedSectorHealth, SealedSectorMetadata,
     SectorBuilderErr, SectorManagerErr,
@@ -32,6 +34,39 @@ impl From<SealedSectorHealth> for FFISealedSectorHealth {
             SealedSectorHealth::ErrorInvalidChecksum => FFISealedSectorHealth::ErrorInvalidChecksum,
             SealedSectorHealth::ErrorInvalidLength => FFISealedSectorHealth::ErrorInvalidLength,
             SealedSectorHealth::ErrorMissing => FFISealedSectorHealth::ErrorMissing,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct FFICandidate {
+    pub sector_id: u64,
+    pub partial_ticket: [u8; 32],
+    pub ticket: [u8; 32],
+    pub sector_challenge_index: u64,
+    pub data_ptr: *const u8,
+    pub data_len: libc::size_t,
+}
+
+impl From<FFICandidate> for Candidate {
+    fn from(x: FFICandidate) -> Self {
+        let FFICandidate {
+            sector_id,
+            partial_ticket,
+            ticket,
+            sector_challenge_index,
+            data_ptr,
+            data_len,
+        } = x;
+
+        let data = unsafe { from_raw_parts(data_ptr, data_len).to_vec() };
+        Candidate {
+            sector_id: sector_id.into(),
+            partial_ticket,
+            ticket,
+            sector_challenge_index,
+            data,
         }
     }
 }
@@ -68,11 +103,33 @@ impl From<SealStatus> for FFISealStatus {
 
 #[repr(C)]
 #[derive(DropStructMacro)]
+pub struct GenerateCandidatesResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub candidates_len: libc::size_t,
+    pub candidates_ptr: *const FFICandidate,
+}
+
+impl Default for GenerateCandidatesResponse {
+    fn default() -> GenerateCandidatesResponse {
+        GenerateCandidatesResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            candidates_len: 0,
+            candidates_ptr: ptr::null(),
+        }
+    }
+}
+
+code_and_message_impl!(GenerateCandidatesResponse);
+
+#[repr(C)]
+#[derive(DropStructMacro)]
 pub struct GeneratePoStResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub proof_len: libc::size_t,
-    pub proof_ptr: *const u8,
+    pub flattened_proofs_len: libc::size_t,
+    pub flattened_proofs_ptr: *const u8,
 }
 
 impl Default for GeneratePoStResponse {
@@ -80,8 +137,8 @@ impl Default for GeneratePoStResponse {
         GeneratePoStResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            proof_len: 0,
-            proof_ptr: ptr::null(),
+            flattened_proofs_len: 0,
+            flattened_proofs_ptr: ptr::null(),
         }
     }
 }

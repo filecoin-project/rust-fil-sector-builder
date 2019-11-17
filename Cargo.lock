@@ -769,7 +769,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs"
 version = "0.6.4"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#46e2598da4ddabfe906c81bcc3d19a1a8dc83162"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#ff170eec83c36b9b396dab4b1ceeb52c209e7c8a"
 dependencies = [
  "bellperson 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitvec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -810,7 +810,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs-ffi"
 version = "0.7.3"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=feat/election-post#75f518c5776b21264ce62f60f6e68ad8fb72be3f"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=feat/election-post#bd411d96640bca744ebc99a3f83f4a215a634dfd"
 dependencies = [
  "cbindgen 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "drop_struct_macro_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2237,7 +2237,7 @@ dependencies = [
 [[package]]
 name = "storage-proofs"
 version = "0.6.2"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#46e2598da4ddabfe906c81bcc3d19a1a8dc83162"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#ff170eec83c36b9b396dab4b1ceeb52c209e7c8a"
 dependencies = [
  "aes 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",

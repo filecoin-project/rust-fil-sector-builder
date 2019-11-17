@@ -279,8 +279,11 @@ dependencies = [
 
 [[package]]
 name = "cast"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "cbindgen"
@@ -451,7 +454,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "atty 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)",
- "cast 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cast 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion-plot 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -474,7 +477,7 @@ name = "criterion-plot"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "cast 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cast 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -766,7 +769,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs"
 version = "0.6.4"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#56f9f6c5bbf4275c3406cd79bec791c62896fbcb"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#46e2598da4ddabfe906c81bcc3d19a1a8dc83162"
 dependencies = [
  "bellperson 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitvec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -807,7 +810,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs-ffi"
 version = "0.7.3"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=feat/election-post#3c38213d9b910ac03101accf6fef0ba44a842232"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=feat/election-post#75f518c5776b21264ce62f60f6e68ad8fb72be3f"
 dependencies = [
  "cbindgen 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "drop_struct_macro_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2234,7 +2237,7 @@ dependencies = [
 [[package]]
 name = "storage-proofs"
 version = "0.6.2"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#56f9f6c5bbf4275c3406cd79bec791c62896fbcb"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs.git?branch=feat/election-post#46e2598da4ddabfe906c81bcc3d19a1a8dc83162"
 dependencies = [
  "aes 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2809,7 +2812,7 @@ dependencies = [
 "checksum byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a7c3dd8985a7111efc5c80b44e23ecdd8c007de8ade3b96595387e812b957cf5"
 "checksum bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)" = "206fdffcfa2df7cbe15601ef46c813fce0965eb3286db6b56c583b814b51c81c"
 "checksum c2-chacha 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "214238caa1bf3a496ec3392968969cab8549f96ff30652c9e56885329315f6bb"
-"checksum cast 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "926013f2860c46252efceabb19f4a6b308197505082c609025aa6706c011d427"
+"checksum cast 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "4b9434b9a5aa1450faa3f9cb14ea0e8c53bb5d2b3c1bfd1ab4fc03e9f33fbfb0"
 "checksum cbindgen 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "9daec6140ab4dcd38c3dd57e580b59a621172a526ac79f1527af760a55afeafd"
 "checksum cc 1.0.47 (registry+https://github.com/rust-lang/crates.io-index)" = "aa87058dce70a3ff5621797f1506cb837edd02ac4c0ae642b4542dce802908b8"
 "checksum cexpr 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "fce5b5fb86b0c57c20c834c1b412fd09c77c8a59b9473f86272709e78874cd1d"

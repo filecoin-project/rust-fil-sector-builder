@@ -12,7 +12,7 @@ jobs:
       - run:
           name: Install paramcache from head of rust-fil-proofs master branch
           command: |
-            cargo install filecoin-proofs --bin=paramcache --force --git=https://github.com/filecoin-project/rust-fil-proofs.git --branch=master
+            cargo install filecoin-proofs --bin=paramcache --locked --force
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
       - restore_parameter_cache
       - run:

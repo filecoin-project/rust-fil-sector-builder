@@ -134,32 +134,30 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                     .manager()
                     .cache_path(&sector.sector_access);
 
-                let info = if let Some(ref fault_set) = fault_set {
-                    if fault_set.contains(&sector.sector_id) {
-                        PrivateReplicaInfo::new_faulty(
-                            path_str,
-                            sector.comm_r,
-                            sector.p_aux.clone(),
-                            cache_dir,
-                        )
-                    } else {
+                if let Some(ref fault_set) = fault_set {
+                    // only non faulty sectors
+                    if !fault_set.contains(&sector.sector_id) {
+                        replicas.insert(
+                            sector.sector_id,
+                            PrivateReplicaInfo::new(
+                                path_str,
+                                sector.comm_r,
+                                sector.p_aux.clone(),
+                                cache_dir,
+                            ),
+                        );
+                    }
+                } else {
+                    replicas.insert(
+                        sector.sector_id,
                         PrivateReplicaInfo::new(
                             path_str,
                             sector.comm_r,
                             sector.p_aux.clone(),
                             cache_dir,
-                        )
-                    }
-                } else {
-                    PrivateReplicaInfo::new(
-                        path_str,
-                        sector.comm_r,
-                        sector.p_aux.clone(),
-                        cache_dir,
-                    )
-                };
-
-                replicas.insert(sector.sector_id, info);
+                        ),
+                    );
+                }
             }
         }
 

@@ -22,7 +22,6 @@ use filecoin_proofs_ffi::types::FFICandidate;
 use storage_proofs::fr32::fr_into_bytes;
 use storage_proofs::hasher::pedersen::PedersenDomain;
 use storage_proofs::hasher::Domain;
-use storage_proofs::stacked::PersistentAux;
 
 /// Writes user piece-bytes to a staged sector and returns the id of the sector
 /// to which the bytes were written.
@@ -410,7 +409,7 @@ pub unsafe extern "C" fn sector_builder_ffi_seal_pre_commit(
 
         match (*ptr).seal_pre_commit(sector_id.into(), seal_ticket.into()) {
             Ok(meta) => {
-                if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                if let SealStatus::PreCommitted(t, p) = meta.seal_status {
                     let pieces = meta
                         .pieces
                         .into_iter()
@@ -511,7 +510,7 @@ pub unsafe extern "C" fn sector_builder_ffi_resume_seal_pre_commit(
 
         match (*ptr).resume_seal_pre_commit(sector_id.into()) {
             Ok(meta) => {
-                if let SealStatus::PreCommitted(t, _, p) = meta.seal_status {
+                if let SealStatus::PreCommitted(t, p) = meta.seal_status {
                     let pieces = meta
                         .pieces
                         .into_iter()
@@ -684,10 +683,6 @@ pub unsafe extern "C" fn sector_builder_ffi_import_sealed_sector(
             seal_seed.into(),
             *comm_r,
             *comm_d,
-            PersistentAux {
-                comm_c: comm_c.unwrap(),
-                comm_r_last: comm_r_last.unwrap(),
-            },
             pieces,
             proof,
         ) {

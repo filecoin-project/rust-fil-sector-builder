@@ -9,6 +9,7 @@ use ffi_toolkit::{
 };
 use libc;
 use once_cell::sync::OnceCell;
+use paired::bls12_381::Bls12;
 use sector_builder::{GetSealedSectorResult, PieceMetadata, SealStatus, SecondsSinceEpoch};
 use storage_proofs::sector::SectorId;
 
@@ -16,7 +17,9 @@ use crate::types::{
     self, err_code_and_msg, FFIPieceMetadata, FFISealSeed, FFISealStatus, FFISealTicket,
     FFISealedSectorHealth, FFISealedSectorMetadata, FileDescriptorRef, SectorBuilder,
 };
-use filecoin_proofs::UnpaddedBytesAmount;
+use filecoin_proofs::{Candidate, UnpaddedBytesAmount};
+use filecoin_proofs_ffi::types::FFICandidate;
+use storage_proofs::fr32::fr_into_bytes;
 use storage_proofs::hasher::pedersen::PedersenDomain;
 use storage_proofs::hasher::Domain;
 use storage_proofs::stacked::PersistentAux;
@@ -228,20 +231,19 @@ pub unsafe extern "C" fn sector_builder_ffi_get_staged_sectors(
 }
 
 /// Generates a proof-of-spacetime for the given replica commitments.
-///
 #[no_mangle]
-pub unsafe extern "C" fn sector_builder_ffi_generate_post(
+pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
     ptr: *mut SectorBuilder,
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
     faults_ptr: *const u64,
     faults_len: libc::size_t,
-) -> *mut types::GeneratePoStResponse {
+) -> *mut types::GenerateCandidatesResponse {
     catch_panic_response(|| {
         init_log();
 
-        info!("generate_post: {}", "start");
+        info!("generate_candidates: {}", "start");
 
         let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
         let faults = from_raw_parts(faults_ptr, faults_len)
@@ -249,7 +251,76 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
             .map(|x| SectorId::from(*x))
             .collect();
 
-        let result = (*ptr).generate_post(&comm_rs, challenge_seed, faults);
+        let result = (*ptr).generate_candidates(&comm_rs, challenge_seed, faults);
+
+        let mut response = types::GenerateCandidatesResponse::default();
+
+        match result {
+            Ok(candidates) => {
+                response.status_code = FCPResponseStatus::FCPNoError;
+
+                let ffi_candidates: Vec<FFICandidate> = candidates
+                    .into_iter()
+                    .map(|c| {
+                        let Candidate {
+                            sector_id,
+                            partial_ticket,
+                            ticket,
+                            sector_challenge_index,
+                        } = c;
+
+                        let mut partial_ticket_arr = [0u8; 32];
+                        partial_ticket_arr
+                            .copy_from_slice(&fr_into_bytes::<Bls12>(&partial_ticket)[..]);
+
+                        FFICandidate {
+                            sector_id: u64::from(sector_id),
+                            partial_ticket: partial_ticket_arr,
+                            ticket,
+                            sector_challenge_index,
+                        }
+                    })
+                    .collect();
+                response.candidates_len = ffi_candidates.len();
+                response.candidates_ptr = ffi_candidates.as_ptr();
+
+                // we'll free this stuff when we free the GenerateCandidatesResponse
+                mem::forget(ffi_candidates);
+            }
+            Err(err) => {
+                response.set_error(err_code_and_msg(&err));
+            }
+        }
+
+        info!("generate_candidates: {}", "finish");
+
+        raw_ptr(response)
+    })
+}
+
+/// Generates a proof-of-spacetime for the given replica commitments.
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_generate_post(
+    ptr: *mut SectorBuilder,
+    flattened_comm_rs_ptr: *const u8,
+    flattened_comm_rs_len: libc::size_t,
+    challenge_seed: &[u8; 32],
+    winners_ptr: *const FFICandidate,
+    winners_len: libc::size_t,
+) -> *mut types::GeneratePoStResponse {
+    catch_panic_response(|| {
+        init_log();
+
+        info!("generate_post: {}", "start");
+
+        let comm_rs = into_commitments(flattened_comm_rs_ptr, flattened_comm_rs_len);
+        let result = from_raw_parts(winners_ptr, winners_len)
+            .iter()
+            .cloned()
+            .map(|c| c.try_into_candidate())
+            .collect::<Result<_, _>>()
+            .map_err(Into::into)
+            .and_then(|winners| (*ptr).generate_post(&comm_rs, challenge_seed, winners));
 
         let mut response = types::GeneratePoStResponse::default();
 
@@ -257,11 +328,13 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
             Ok(proof) => {
                 response.status_code = FCPResponseStatus::FCPNoError;
 
-                response.proof_len = proof.len();
-                response.proof_ptr = proof.as_ptr();
+                let flattened_proofs: Vec<u8> = proof.into_iter().flatten().collect();
+
+                response.flattened_proofs_len = flattened_proofs.len();
+                response.flattened_proofs_ptr = flattened_proofs.as_ptr();
 
                 // we'll free this stuff when we free the GeneratePoSTResponse
-                mem::forget(proof);
+                mem::forget(flattened_proofs);
             }
             Err(err) => {
                 response.set_error(err_code_and_msg(&err));
@@ -675,6 +748,13 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(
     ptr: *mut types::GeneratePoStResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_candidates_response(
+    ptr: *mut types::GenerateCandidatesResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

@@ -10,6 +10,7 @@ use ffi_toolkit::{
 };
 use libc;
 
+use filecoin_proofs_ffi::types::FFICandidate;
 use sector_builder::{
     PieceMetadata, SealSeed, SealStatus, SealTicket, SealedSectorHealth, SealedSectorMetadata,
     SectorBuilderErr, SectorManagerErr,
@@ -68,11 +69,33 @@ impl From<SealStatus> for FFISealStatus {
 
 #[repr(C)]
 #[derive(DropStructMacro)]
+pub struct GenerateCandidatesResponse {
+    pub status_code: FCPResponseStatus,
+    pub error_msg: *const libc::c_char,
+    pub candidates_len: libc::size_t,
+    pub candidates_ptr: *const FFICandidate,
+}
+
+impl Default for GenerateCandidatesResponse {
+    fn default() -> GenerateCandidatesResponse {
+        GenerateCandidatesResponse {
+            status_code: FCPResponseStatus::FCPNoError,
+            error_msg: ptr::null(),
+            candidates_len: 0,
+            candidates_ptr: ptr::null(),
+        }
+    }
+}
+
+code_and_message_impl!(GenerateCandidatesResponse);
+
+#[repr(C)]
+#[derive(DropStructMacro)]
 pub struct GeneratePoStResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
-    pub proof_len: libc::size_t,
-    pub proof_ptr: *const u8,
+    pub flattened_proofs_len: libc::size_t,
+    pub flattened_proofs_ptr: *const u8,
 }
 
 impl Default for GeneratePoStResponse {
@@ -80,8 +103,8 @@ impl Default for GeneratePoStResponse {
         GeneratePoStResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
-            proof_len: 0,
-            proof_ptr: ptr::null(),
+            flattened_proofs_len: 0,
+            flattened_proofs_ptr: ptr::null(),
         }
     }
 }

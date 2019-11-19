@@ -810,7 +810,7 @@ dependencies = [
 [[package]]
 name = "filecoin-proofs-ffi"
 version = "0.7.3"
-source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=update-for-election-post#4ee5ab287d70f14b715b3ab2a45bf83c9a00a664"
+source = "git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git#aab6d44c38d21b46a1f575dc14eda6ba3b3f82b6"
 dependencies = [
  "cbindgen 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "drop_struct_macro_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2068,7 +2068,7 @@ dependencies = [
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "ffi-toolkit 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "filecoin-proofs 0.6.4 (git+https://github.com/filecoin-project/rust-fil-proofs.git)",
- "filecoin-proofs-ffi 0.7.3 (git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=update-for-election-post)",
+ "filecoin-proofs-ffi 0.7.3 (git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git)",
  "libc 0.2.65 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2863,7 +2863,7 @@ dependencies = [
 "checksum fil-ocl-core 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ecd0aa5895d05824d7eaa38b999c91e9071acb74b304488220e8f8bb555d1ad1"
 "checksum fil-sapling-crypto 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e271bfe714e842fc36b364c6beb5fe8e3e10066495a427c463b6d47170e3b123"
 "checksum filecoin-proofs 0.6.4 (git+https://github.com/filecoin-project/rust-fil-proofs.git)" = "<none>"
-"checksum filecoin-proofs-ffi 0.7.3 (git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git?branch=update-for-election-post)" = "<none>"
+"checksum filecoin-proofs-ffi 0.7.3 (git+https://github.com/filecoin-project/rust-fil-proofs-ffi.git)" = "<none>"
 "checksum filetime 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "1ff6d4dab0aa0c8e6346d46052e93b13a16cf847b54ed357087c35011048cc7d"
 "checksum flate2 1.0.13 (registry+https://github.com/rust-lang/crates.io-index)" = "6bd6d6f4752952feb71363cffc9ebac9411b75b87c6ab6058c40c8900cf43c0f"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"

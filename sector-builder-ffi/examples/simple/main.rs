@@ -147,6 +147,12 @@ unsafe fn sector_state_transitions(sector_size: u64) -> Result<(), failure::Erro
         5,
     );
 
+    // verify can't pre-commit
+    assert!(
+        seal_pre_commit(&mut ctx, ptr, 601, cfg.seal_ticket).is_err(),
+        "invalid transition: pre-commit(accepting)"
+    );
+
     // verify can't commit
     assert!(
         seal_commit(&mut ctx, ptr, 601, cfg.seal_seed).is_err(),

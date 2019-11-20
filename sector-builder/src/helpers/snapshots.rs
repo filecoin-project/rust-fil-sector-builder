@@ -27,7 +27,12 @@ pub fn load_snapshot<T: KeyValueStore>(
 
     if let Some(val) = result {
         return serde_cbor::from_slice(&val[..])
-            .map_err(failure::Error::from)
+            .map_err(|err| {
+                format_err!(
+                    "could not deserialize snapshot bytes to a SectorBuilderState: {}",
+                    err
+                )
+            })
             .map(Option::Some);
     }
 

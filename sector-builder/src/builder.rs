@@ -351,6 +351,7 @@ pub mod tests {
     use super::*;
     use std::io::Write;
 
+    #[ignore]
     #[test]
     fn test_cannot_init_sector_builder_with_corrupted_snapshot() {
         let f = || {

@@ -867,9 +867,10 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
     // generate and then verify a proof-of-spacetime for the sealed sector
     {
         let cseed = [1u8; 32];
+        let ccount = 1;
         let p_set = ProvingSet::new(get_sector_info(&mut ctx, b_ptr));
 
-        let candidates = generate_candidates(b_ptr, cseed, &p_set).unwrap();
+        let candidates = generate_candidates(b_ptr, cseed, ccount, &p_set).unwrap();
 
         let winners: Vec<sector_builder_ffi_FFICandidate> = candidates
             .into_iter()
@@ -881,12 +882,13 @@ unsafe fn sector_builder_lifecycle(sector_size: u64) -> Result<(), failure::Erro
             })
             .collect();
 
-        let proofs = generate_post(b_ptr, cseed, &p_set, &winners).unwrap();
+        let proofs = generate_post(b_ptr, cseed, ccount, &p_set, &winners).unwrap();
 
         assert!(
             verify_post(
                 cfg.sector_class.sector_size,
                 cseed,
+                ccount,
                 &p_set,
                 &proofs,
                 &winners,

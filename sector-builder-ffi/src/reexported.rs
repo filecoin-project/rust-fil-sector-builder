@@ -77,6 +77,7 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_generate_data_commitment(
 pub unsafe extern "C" fn sector_builder_ffi_reexported_verify_post(
     sector_size: u64,
     randomness: &[u8; 32],
+    challenge_count: u64,
     sector_ids_ptr: *const u64,
     sector_ids_len: libc::size_t,
     flattened_comm_rs_ptr: *const u8,
@@ -93,6 +94,7 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_verify_post(
         filecoin_proofs_ffi::api::verify_post(
             sector_size,
             randomness,
+            challenge_count,
             sector_ids_ptr,
             sector_ids_len,
             flattened_comm_rs_ptr,

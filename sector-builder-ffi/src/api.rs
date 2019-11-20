@@ -236,6 +236,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
+    challenge_count: u64,
     faults_ptr: *const u64,
     faults_len: libc::size_t,
 ) -> *mut types::GenerateCandidatesResponse {
@@ -250,7 +251,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
             .map(|x| SectorId::from(*x))
             .collect();
 
-        let result = (*ptr).generate_candidates(&comm_rs, challenge_seed, faults);
+        let result = (*ptr).generate_candidates(&comm_rs, challenge_seed, challenge_count, faults);
 
         let mut response = types::GenerateCandidatesResponse::default();
 
@@ -304,6 +305,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     flattened_comm_rs_ptr: *const u8,
     flattened_comm_rs_len: libc::size_t,
     challenge_seed: &[u8; 32],
+    challenge_count: u64,
     winners_ptr: *const FFICandidate,
     winners_len: libc::size_t,
 ) -> *mut types::GeneratePoStResponse {
@@ -319,7 +321,9 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
             .map(|c| c.try_into_candidate())
             .collect::<Result<_, _>>()
             .map_err(Into::into)
-            .and_then(|winners| (*ptr).generate_post(&comm_rs, challenge_seed, winners));
+            .and_then(|winners| {
+                (*ptr).generate_post(&comm_rs, challenge_seed, challenge_count, winners)
+            });
 
         let mut response = types::GeneratePoStResponse::default();
 

@@ -56,10 +56,10 @@ impl From<SealStatus> for FFISealStatus {
         match ss {
             SealStatus::AcceptingPieces => FFISealStatus::AcceptingPieces,
             SealStatus::Committed(_) => FFISealStatus::Committed,
-            SealStatus::Committing(_, _, _, _) => FFISealStatus::Committing,
-            SealStatus::CommittingPaused(_, _, _, _) => FFISealStatus::CommittingPaused,
+            SealStatus::Committing(_, _, _) => FFISealStatus::Committing,
+            SealStatus::CommittingPaused(_, _, _) => FFISealStatus::CommittingPaused,
             SealStatus::Failed(_) => FFISealStatus::Failed,
-            SealStatus::PreCommitted(_, _, _) => FFISealStatus::PreCommitted,
+            SealStatus::PreCommitted(_, _) => FFISealStatus::PreCommitted,
             SealStatus::PreCommitting(_) => FFISealStatus::PreCommitting,
             SealStatus::PreCommittingPaused(_) => FFISealStatus::PreCommittingPaused,
             SealStatus::FullyPacked => FFISealStatus::FullyPacked,

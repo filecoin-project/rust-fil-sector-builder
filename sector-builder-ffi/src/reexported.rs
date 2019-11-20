@@ -225,6 +225,7 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_seal_commit(
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_unseal(
     sector_class: filecoin_proofs_ffi::types::FFISectorClass,
+    cache_dir_path: *const libc::c_char,
     sealed_sector_path: *const libc::c_char,
     unseal_output_path: *const libc::c_char,
     sector_id: u64,
@@ -237,6 +238,7 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_unseal(
 
         filecoin_proofs_ffi::api::unseal(
             sector_class,
+            cache_dir_path,
             sealed_sector_path,
             unseal_output_path,
             sector_id,

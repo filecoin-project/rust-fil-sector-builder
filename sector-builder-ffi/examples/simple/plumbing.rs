@@ -12,6 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/libsector_builder_ffi.rs"));
 pub(crate) unsafe fn generate_candidates(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
+    challenge_count: u64,
     proving_set: &ProvingSet,
 ) -> Result<Vec<sector_builder_ffi_FFICandidate>, (sector_builder_ffi_FCPResponseStatus, String)> {
     let flattened_comm_rs = proving_set.flattened_comm_rs();
@@ -22,6 +23,7 @@ pub(crate) unsafe fn generate_candidates(
         flattened_comm_rs.as_ptr(),
         flattened_comm_rs.len(),
         &mut challenge_seed.clone(),
+        challenge_count,
         faulty_sector_ids.as_ptr(),
         faulty_sector_ids.len(),
     );
@@ -42,6 +44,7 @@ pub(crate) unsafe fn generate_candidates(
 pub(crate) unsafe fn generate_post(
     ptr: *mut sector_builder_ffi_SectorBuilder,
     challenge_seed: [u8; 32],
+    challenge_count: u64,
     proving_set: &ProvingSet,
     winners: &[sector_builder_ffi_FFICandidate],
 ) -> Result<Vec<u8>, (sector_builder_ffi_FCPResponseStatus, String)> {
@@ -52,6 +55,7 @@ pub(crate) unsafe fn generate_post(
         flattened_comm_rs.as_ptr(),
         flattened_comm_rs.len(),
         &mut challenge_seed.clone(),
+        challenge_count,
         winners.as_ptr(),
         winners.len(),
     );
@@ -70,6 +74,7 @@ pub(crate) unsafe fn generate_post(
 pub(crate) unsafe fn verify_post(
     sector_size: u64,
     challenge_seed: [u8; 32],
+    challenge_count: u64,
     proving_set: &ProvingSet,
     flattened_proofs: &[u8],
     winners: &[sector_builder_ffi_FFICandidate],
@@ -81,6 +86,7 @@ pub(crate) unsafe fn verify_post(
     let resp = sector_builder_ffi_reexported_verify_post(
         sector_size,
         &mut challenge_seed.clone(),
+        challenge_count,
         sector_ids.as_ptr(),
         sector_ids.len(),
         flattened_comm_rs.as_ptr(),

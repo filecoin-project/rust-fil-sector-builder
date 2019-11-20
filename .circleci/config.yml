@@ -16,8 +16,8 @@ jobs:
             which paramcache || { printf '%s\n' "missing paramcache binary" >&2; exit 1; }
       - restore_parameter_cache
       - run:
-          name: Generate Groth parameters and verifying keys
-          command: paramcache
+          name: Generate Groth parameters and verifying keys for 1KiB and 1GiB sectors
+          command: paramcache -z=1024,1073741824
           no_output_timeout: 1h
       - save_parameter_cache
 
@@ -272,16 +272,6 @@ workflows:
             - cargo_fetch
             - obtain_parameters
       - ffi_regression:
-          name: e2e_256MiB (lifecycle)
-          sector_size: 268435456
-          test_idx: 2
-          requires:
-            - cargo_fetch
-            - obtain_parameters
-          filters:
-            branches:
-              only: master
-      - ffi_regression:
           name: e2e_1GiB (lifecycle)
           sector_size: 1073741824
           test_idx: 2
@@ -342,7 +332,7 @@ commands:
   restore_parameter_cache:
     steps:
       - restore_cache:
-          key: v17-proof-params-{{ arch }}
+          key: v17b-proof-params-{{ arch }}
           paths:
             - /tmp/filecoin-parameter-cache
   restore_rust_cache:
@@ -352,7 +342,7 @@ commands:
   save_parameter_cache:
     steps:
       - save_cache:
-          key: v17-proof-params-{{ arch }}
+          key: v17b-proof-params-{{ arch }}
           paths:
             - /tmp/filecoin-parameter-cache
   save_rust_cache:

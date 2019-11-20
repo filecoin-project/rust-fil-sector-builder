@@ -121,7 +121,14 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                     .manager()
                     .cache_path(&sector.sector_access);
 
-                if !fault_set.contains(&sector.sector_id) {
+                if let Some(ref fault_set) = fault_set {
+                    if !fault_set.contains(&sector.sector_id) {
+                        replicas.insert(
+                            sector.sector_id,
+                            PrivateReplicaInfo::new(path_str, sector.comm_r, cache_dir).unwrap(),
+                        );
+                    }
+                } else {
                     replicas.insert(
                         sector.sector_id,
                         PrivateReplicaInfo::new(path_str, sector.comm_r, cache_dir).unwrap(),

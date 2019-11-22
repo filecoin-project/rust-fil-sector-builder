@@ -1,4 +1,5 @@
 use ffi_toolkit::catch_panic_response;
+use filecoin_proofs_ffi::types::{FFICandidate, FFIPrivateReplicaInfo};
 
 /// Returns the number of user bytes (before bit-padding has been added) which
 /// will fit into a sector of the given size.
@@ -251,6 +252,58 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_unseal(
     })
 }
 
+/// TODO: document
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_generate_candidates(
+    sector_size: u64,
+    randomness: &[u8; 32],
+    challenge_count: u64,
+    replicas_ptr: *const FFIPrivateReplicaInfo,
+    replicas_len: libc::size_t,
+    prover_id: &[u8; 32],
+) -> *mut filecoin_proofs_ffi::types::GenerateCandidatesResponse {
+    catch_panic_response(|| {
+        crate::api::init_log();
+
+        filecoin_proofs_ffi::api::generate_candidates(
+            sector_size,
+            randomness,
+            challenge_count,
+            replicas_ptr,
+            replicas_len,
+            prover_id,
+        )
+    })
+}
+
+/// TODO: document
+///
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_generate_post(
+    sector_size: u64,
+    randomness: &[u8; 32],
+    replicas_ptr: *const FFIPrivateReplicaInfo,
+    replicas_len: libc::size_t,
+    winners_ptr: *const FFICandidate,
+    winners_len: libc::size_t,
+    prover_id: &[u8; 32],
+) -> *mut filecoin_proofs_ffi::types::GeneratePoStResponse {
+    catch_panic_response(|| {
+        crate::api::init_log();
+
+        filecoin_proofs_ffi::api::generate_post(
+            sector_size,
+            randomness,
+            replicas_ptr,
+            replicas_len,
+            winners_ptr,
+            winners_len,
+            prover_id,
+        )
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_verify_seal_response(
     ptr: *mut filecoin_proofs_ffi::types::VerifySealResponse,
@@ -324,6 +377,20 @@ pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_write_without_ali
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_write_with_alignment_response(
     ptr: *mut filecoin_proofs_ffi::types::WriteWithAlignmentResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_generate_candidates_response(
+    ptr: *mut filecoin_proofs_ffi::types::GenerateCandidatesResponse,
+) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sector_builder_ffi_reexported_destroy_generate_post_response(
+    ptr: *mut filecoin_proofs_ffi::types::GeneratePoStResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

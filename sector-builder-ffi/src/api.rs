@@ -239,7 +239,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
     challenge_count: u64,
     faults_ptr: *const u64,
     faults_len: libc::size_t,
-) -> *mut types::GenerateCandidatesResponse {
+) -> *mut types::SectorBuilderGenerateCandidatesResponse {
     catch_panic_response(|| {
         init_log();
 
@@ -253,7 +253,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_candidates(
 
         let result = (*ptr).generate_candidates(&comm_rs, challenge_seed, challenge_count, faults);
 
-        let mut response = types::GenerateCandidatesResponse::default();
+        let mut response = types::SectorBuilderGenerateCandidatesResponse::default();
 
         match result {
             Ok(candidates) => {
@@ -308,7 +308,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
     challenge_count: u64,
     winners_ptr: *const FFICandidate,
     winners_len: libc::size_t,
-) -> *mut types::GeneratePoStResponse {
+) -> *mut types::SectorBuilderGeneratePoStResponse {
     catch_panic_response(|| {
         init_log();
 
@@ -325,7 +325,7 @@ pub unsafe extern "C" fn sector_builder_ffi_generate_post(
                 (*ptr).generate_post(&comm_rs, challenge_seed, challenge_count, winners)
             });
 
-        let mut response = types::GeneratePoStResponse::default();
+        let mut response = types::SectorBuilderGeneratePoStResponse::default();
 
         match result {
             Ok(proof) => {
@@ -746,14 +746,14 @@ pub unsafe extern "C" fn sector_builder_ffi_destroy_add_piece_response(
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_post_response(
-    ptr: *mut types::GeneratePoStResponse,
+    ptr: *mut types::SectorBuilderGeneratePoStResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sector_builder_ffi_destroy_generate_candidates_response(
-    ptr: *mut types::GenerateCandidatesResponse,
+    ptr: *mut types::SectorBuilderGenerateCandidatesResponse,
 ) {
     let _ = Box::from_raw(ptr);
 }

@@ -69,16 +69,16 @@ impl From<SealStatus> for FFISealStatus {
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct GenerateCandidatesResponse {
+pub struct SectorBuilderGenerateCandidatesResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub candidates_len: libc::size_t,
     pub candidates_ptr: *const FFICandidate,
 }
 
-impl Default for GenerateCandidatesResponse {
-    fn default() -> GenerateCandidatesResponse {
-        GenerateCandidatesResponse {
+impl Default for SectorBuilderGenerateCandidatesResponse {
+    fn default() -> SectorBuilderGenerateCandidatesResponse {
+        SectorBuilderGenerateCandidatesResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             candidates_len: 0,
@@ -87,20 +87,20 @@ impl Default for GenerateCandidatesResponse {
     }
 }
 
-code_and_message_impl!(GenerateCandidatesResponse);
+code_and_message_impl!(SectorBuilderGenerateCandidatesResponse);
 
 #[repr(C)]
 #[derive(DropStructMacro)]
-pub struct GeneratePoStResponse {
+pub struct SectorBuilderGeneratePoStResponse {
     pub status_code: FCPResponseStatus,
     pub error_msg: *const libc::c_char,
     pub flattened_proofs_len: libc::size_t,
     pub flattened_proofs_ptr: *const u8,
 }
 
-impl Default for GeneratePoStResponse {
-    fn default() -> GeneratePoStResponse {
-        GeneratePoStResponse {
+impl Default for SectorBuilderGeneratePoStResponse {
+    fn default() -> SectorBuilderGeneratePoStResponse {
+        SectorBuilderGeneratePoStResponse {
             status_code: FCPResponseStatus::FCPNoError,
             error_msg: ptr::null(),
             flattened_proofs_len: 0,
@@ -109,7 +109,7 @@ impl Default for GeneratePoStResponse {
     }
 }
 
-code_and_message_impl!(GeneratePoStResponse);
+code_and_message_impl!(SectorBuilderGeneratePoStResponse);
 
 // err_code_and_msg accepts an Error struct and produces a tuple of response
 // status code and a pointer to a C string, both of which can be used to set

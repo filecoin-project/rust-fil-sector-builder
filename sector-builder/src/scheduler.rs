@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
+use anyhow::Result;
+
 use filecoin_proofs::{error::ExpectWithBacktrace, Candidate};
 use storage_proofs::sector::SectorId;
 
-use crate::error::Result;
 use crate::kv_store::KeyValueStore;
 use crate::metadata::{SealStatus, StagedSectorMetadata};
 use crate::scheduler::SchedulerTask::{OnSealCommitComplete, OnSealPreCommitComplete};

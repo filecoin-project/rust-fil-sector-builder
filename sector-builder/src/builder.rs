@@ -2,14 +2,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 
-use filecoin_proofs::error::ExpectWithBacktrace;
+use anyhow::{anyhow, ensure, Context, Result};
+
 use filecoin_proofs::types::{PoRepConfig, PoStConfig, SectorClass};
 use filecoin_proofs::Candidate;
 use storage_proofs::sector::SectorId;
 
 use crate::constants::*;
 use crate::disk_backed_storage::new_sector_store;
-use crate::error::{Result, SectorBuilderErr};
+use crate::error::SectorBuilderErr;
 use crate::helpers;
 use crate::helpers::SnapshotKey;
 use crate::kv_store::{FileSystemKvs, KeyValueStore};
@@ -72,7 +73,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         // Initialize the key/value store in which we store metadata
         // snapshots.
         let kv_store = FileSystemKvs::initialize(metadata_dir.as_ref())
-            .map_err(|err| format_err!("could not initialize metadata store: {:?}", err))?;
+            .context("could not initialize metadata store")?;
 
         // Initialize a SectorStore and wrap it in an Arc so we can access it
         // from multiple threads. Our implementation assumes that the
@@ -89,8 +90,7 @@ impl<R: 'static + Send + std::io::Read> SectorBuilder<R> {
         // scratch.
         let loaded: Option<SectorBuilderState> =
             helpers::load_snapshot(&kv_store, &SnapshotKey::new(prover_id, sector_size))
-                .map_err(|err| format_err!("failed to load metadata snapshot: {}", err))
-                .map(Into::into)?;
+                .context("failed to load metadata snapshot: {}")?;
 
         let state = if let Some(inner) = loaded {
             inner
@@ -315,31 +315,27 @@ fn ensure_parameter_cache_hydrated(sector_class: SectorClass) -> Result<()> {
     let porep_config: PoRepConfig = sector_class.into();
 
     let porep_cache_key = porep_config.get_cache_verifying_key_path();
-    ensure_file(porep_cache_key)
-        .map_err(|err| format_err!("missing verifying key for PoRep: {:?}", err))?;
+    ensure_file(porep_cache_key).context("missing verifying key for PoRep")?;
 
     let porep_cache_params = porep_config.get_cache_params_path();
-    ensure_file(porep_cache_params)
-        .map_err(|err| format_err!("missing Groth parameters for PoRep: {:?}", err))?;
+    ensure_file(porep_cache_params).context("missing Groth parameters for PoRep")?;
 
     // PoSt
     let post_config: PoStConfig = sector_class.into();
 
     let post_cache_key = post_config.get_cache_verifying_key_path();
-    ensure_file(post_cache_key)
-        .map_err(|err| format_err!("missing verifying key for PoSt: {:?}", err))?;
+    ensure_file(post_cache_key).context("missing verifying key for PoSt")?;
 
     let post_cache_params = post_config.get_cache_params_path();
-    ensure_file(post_cache_params)
-        .map_err(|err| format_err!("missing Groth parameters for PoSt: {:?}", err))?;
+    ensure_file(post_cache_params).context("missing Groth parameters for PoSt")?;
 
     Ok(())
 }
 
 fn log_unrecov<T>(result: Result<T>) -> Result<T> {
     if let Err(err) = &result {
-        if let Some(SectorBuilderErr::Unrecoverable(err, backtrace)) = err.downcast_ref() {
-            error!("unrecoverable: {:?} - {:?}", err, backtrace);
+        if let Some(SectorBuilderErr::Unrecoverable(message)) = err.downcast_ref() {
+            error!("unrecoverable: {:?} - {:?}", message, err.backtrace());
         }
     }
 
@@ -349,8 +345,7 @@ fn log_unrecov<T>(result: Result<T>) -> Result<T> {
 fn ensure_file(p: impl AsRef<Path>) -> Result<()> {
     let path_str = p.as_ref().to_string_lossy();
 
-    let metadata =
-        fs::metadata(p.as_ref()).map_err(|_| format_err!("Failed to stat: {}", path_str))?;
+    let metadata = fs::metadata(p.as_ref()).map_err(|_| anyhow!("Failed to stat: {}", path_str))?;
 
     ensure!(metadata.is_file(), "Not a file: {}", path_str);
     ensure!(metadata.len() > 0, "Empty file: {}", path_str);

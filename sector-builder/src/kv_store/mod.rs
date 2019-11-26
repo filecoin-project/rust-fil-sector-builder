@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::error::Result;
+use anyhow::Result;
 
 mod fs;
 

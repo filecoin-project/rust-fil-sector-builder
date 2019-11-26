@@ -1,13 +1,13 @@
+use crate::err_unrecov;
 use crate::metadata::SealStatus;
 use crate::state::{SealedState, StagedState};
-use crate::{err_unrecov, error};
 use storage_proofs::sector::SectorId;
 
 pub fn get_seal_status(
     staged_state: &StagedState,
     sealed_state: &SealedState,
     sector_id: SectorId,
-) -> error::Result<SealStatus> {
+) -> anyhow::Result<SealStatus> {
     sealed_state
         .sectors
         .get(&sector_id)

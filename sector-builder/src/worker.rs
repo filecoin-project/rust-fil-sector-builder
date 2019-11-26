@@ -1,9 +1,10 @@
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
+use anyhow::Result;
+
 use filecoin_proofs::error::ExpectWithBacktrace;
 
-use crate::error::Result;
 use crate::scheduler::{SealCommitResult, SealPreCommitResult};
 use crate::{PoRepConfig, SealSeed, SealTicket, UnpaddedByteIndex, UnpaddedBytesAmount};
 use filecoin_proofs::{Candidate, PieceInfo, PoStConfig, PrivateReplicaInfo, SealPreCommitOutput};

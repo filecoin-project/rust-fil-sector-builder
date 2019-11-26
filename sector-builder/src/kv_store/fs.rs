@@ -2,9 +2,9 @@ use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
 use blake2b_simd::State as Blake2b;
 
-use crate::error::Result;
 use crate::kv_store::KeyValueStore;
 
 // FileSystemKvs is a file system-backed key/value store, mostly lifted from

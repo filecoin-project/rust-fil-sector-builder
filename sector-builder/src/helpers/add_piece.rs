@@ -1,9 +1,11 @@
 use std::iter::Iterator;
 
+use anyhow::{Context, Result};
+
 use filecoin_proofs::types::UnpaddedBytesAmount;
 
 use crate::disk_backed_storage::SectorManager;
-use crate::error::*;
+use crate::error::err_overflow;
 use crate::metadata::{self, SealStatus, SecondsSinceEpoch, StagedSectorMetadata};
 use crate::state::SectorBuilderState;
 use crate::SectorStore;
@@ -38,14 +40,14 @@ pub fn add_piece<U: Read>(
 
     let dest_sector_id = opt_dest_sector_id.ok_or(()).or_else(|_| {
         provision_new_staged_sector(mgr, &mut sector_builder_state)
-            .map_err(|err| format_err!("could not provision new staged sector: {}", err))
+            .context("could not provision new staged sector")
     })?;
 
     let ssm = sector_builder_state
         .staged
         .sectors
         .get_mut(&dest_sector_id)
-        .ok_or_else(|| format_err!("unable to retrieve sector from state-map"))?;
+        .context("unable to retrieve sector from state-map")?;
 
     // TODO: Buffering the piece completely into memory is awful, but each of
     // the two function calls (add_piece and generate_piece_commitment) accept a
@@ -56,12 +58,11 @@ pub fn add_piece<U: Read>(
     let mut backing_buffer = vec![];
     let mut cursor = Cursor::new(&mut backing_buffer);
 
-    std::io::copy(&mut piece_file, &mut cursor)
-        .map_err(|err| format_err!("unable to copy piece bytes to buffer: {:?}", err))?;
+    std::io::copy(&mut piece_file, &mut cursor).context("unable to copy piece bytes to buffer")?;
 
     cursor
         .seek(SeekFrom::Start(0))
-        .map_err(|err| format_err!("could not seek into buffer after copy: {:?}", err))?;
+        .context("could not seek into buffer after copy")?;
 
     let mut staged_file = OpenOptions::new()
         .read(true)

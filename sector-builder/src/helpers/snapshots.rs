@@ -1,7 +1,8 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use filecoin_proofs::types::PaddedBytesAmount;
 
-use crate::error::Result;
+use anyhow::Result;
+
 use crate::kv_store::KeyValueStore;
 use crate::state::*;
 
@@ -25,18 +26,12 @@ pub fn load_snapshot<T: KeyValueStore>(
 ) -> Result<Option<SectorBuilderState>> {
     let result: Option<Vec<u8>> = kv_store.get(&Vec::from(key))?;
 
-    if let Some(val) = result {
-        return serde_cbor::from_slice(&val[..])
-            .map_err(|err| {
-                format_err!(
-                    "could not deserialize snapshot bytes to a SectorBuilderState: {}",
-                    err
-                )
-            })
-            .map(Option::Some);
+    match result {
+        Some(val) => serde_cbor::from_slice(&val[..])
+            .context("could not deserialize snapshot bytes to a SectorBuilderState")
+            .map(Option::Some),
+        None => Ok(None),
     }
-
-    Ok(None)
 }
 
 impl From<&SnapshotKey> for Vec<u8> {

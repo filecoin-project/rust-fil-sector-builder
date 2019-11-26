@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
 
+use anyhow::{anyhow, bail, ensure, Result};
+
 use filecoin_proofs::error::ExpectWithBacktrace;
 use filecoin_proofs::pieces::get_piece_start_byte;
 use filecoin_proofs::{
@@ -13,7 +15,6 @@ use storage_proofs::sector::SectorId;
 
 use helpers::SnapshotKey;
 
-use crate::error::Result;
 use crate::helpers::acquire_new_sector_id;
 use crate::kv_store::KeyValueStore;
 use crate::scheduler::{SealCommitResult, SealPreCommitResult};
@@ -302,7 +303,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             .find(|s| s.sector_id == sector_id);
 
         let meta =
-            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
+            opt_meta.context_with(|| format!("no staged sector with id {} exists", sector_id))?;
 
         let ticket = match (mode, &meta.seal_status) {
             (PreCommitMode::StartFresh(t), SealStatus::FullyPacked) => Ok(t),
@@ -318,19 +319,19 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
 
                 let difference = self.max_user_bytes_per_staged_sector - preceding_piece_bytes;
 
-                Err(format_err!(
+                Err(anyhow!(
                     "cannot pre-commit a sector (id = {:?}) which is not fully packed (remaining space = {:?})",
                     sector_id,
                     difference,
                 ))
             }
-            (PreCommitMode::StartFresh(_), s) => Err(format_err!(
+            (PreCommitMode::StartFresh(_), s) => Err(anyhow!(
                 "cannot pre-commit sector with id {:?} and state {:?}",
                 sector_id,
                 s,
             )),
             (PreCommitMode::Resume, SealStatus::PreCommittingPaused(t)) => Ok(t.clone()),
-            (PreCommitMode::Resume, s) => Err(format_err!(
+            (PreCommitMode::Resume, s) => Err(anyhow!(
                 "cannot resume pre-commit sector with id {:?} and state {:?}",
                 sector_id,
                 s,
@@ -375,13 +376,13 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             .find(|s| s.sector_id == sector_id);
 
         let meta =
-            opt_meta.ok_or_else(|| format_err!("no staged sector with id {} exists", sector_id))?;
+            opt_meta.context_with(|| format!("no staged sector with id {} exists", sector_id))?;
 
         let (ticket, pre_commit, seed) = match (mode, &meta.seal_status) {
             (CommitMode::StartFresh(ref s), SealStatus::PreCommitted(t, p)) => {
                 Ok((t.clone(), p.clone(), s.clone()))
             }
-            (CommitMode::StartFresh(_), ss) => Err(format_err!(
+            (CommitMode::StartFresh(_), ss) => Err(anyhow!(
                 "cannot commit sector with id {:?} and state {:?}",
                 sector_id,
                 ss,
@@ -389,7 +390,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             (CommitMode::Resume, SealStatus::CommittingPaused(t, p, s)) => {
                 Ok((t.clone(), p.clone(), s.clone()))
             }
-            (CommitMode::Resume, ss) => Err(format_err!(
+            (CommitMode::Resume, ss) => Err(anyhow!(
                 "cannot commit sector with id {:?} and state {:?}",
                 sector_id,
                 ss,
@@ -438,8 +439,7 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
     ) -> Result<Vec<u8>> {
         result.and_then(|(n, pbuf)| {
             let buffer = self.sector_store.manager().read_raw(
-                pbuf.to_str()
-                    .ok_or_else(|| format_err!("conversion failed"))?,
+                pbuf.to_str().context("conversion failed")?,
                 0,
                 n,
             )?;
@@ -466,27 +466,23 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
         let pcfg = stor.proofs_config().porep_config;
         let scfg = stor.sector_config();
 
-        if sector_id > self.state.sector_id_nonce {
-            return Err(format_err!(
-                "sector import was provided an id {:?} that it did not acquire from the builder (sector_id_none = {:?})",
-                sector_id,
-                self.state.sector_id_nonce,
-            ));
-        }
+        ensure!(sector_id <= self.state.sector_id_nonce,
+            "sector import was provided an id {:?} that it did not acquire from the builder (sector_id_none = {:?})",
+            sector_id,
+            self.state.sector_id_nonce,
+        );
 
-        if self.state.staged.sectors.contains_key(&sector_id) {
-            return Err(format_err!(
-                "sector import was provided an id {:?} that is already taken by a staged sector",
-                sector_id,
-            ));
-        }
+        ensure!(
+            !self.state.staged.sectors.contains_key(&sector_id),
+            "sector import was provided an id {:?} that is already taken by a staged sector",
+            sector_id,
+        );
 
-        if self.state.sealed.sectors.contains_key(&sector_id) {
-            return Err(format_err!(
-                "sector import was provided an id {:?} that is already taken by a sealed sector",
-                sector_id,
-            ));
-        }
+        ensure!(
+            !self.state.sealed.sectors.contains_key(&sector_id),
+            "sector import was provided an id {:?} that is already taken by a sealed sector",
+            sector_id,
+        );
 
         // verify the provided proof
         match verify_seal(
@@ -500,17 +496,17 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
             &proof,
         ) {
             Err(err) => {
-                return Err(format_err!(
+                bail!(
                     "sector import (id = {:?}) saw error verifying seal proof: {:?}",
                     sector_id,
                     err
-                ));
+                );
             }
             Ok(false) => {
-                return Err(format_err!(
+                bail!(
                     "proof provided to sector import (id = {:?}) was invalid",
                     sector_id
-                ));
+                );
             }
             Ok(_) => {} // noop
         };
@@ -524,28 +520,25 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                 .map(Into::into)
                 .collect::<Vec<PieceInfo>>(),
         )
-        .map_err(|err| format_err!("sector import failed to compute comm_d: {:?}", err))?;
+        .context("sector import failed to compute comm_d")?;
 
         // verify that the computed comm_d matches what we were provided
-        if comm_d != computed_comm_d {
-            return Err(format_err!(
-                "comm_d provided to sector import (id = {:?}) did not match comm_d computed from pieces",
-                sector_id
-            ));
-        }
+        ensure!(comm_d == computed_comm_d,
+        "comm_d provided to sector import (id = {:?}) did not match comm_d computed from pieces",
+        sector_id
+            );
 
         // ensure that the file has the appropriate quantity of bytes
         let len = std::fs::metadata(&sealed_sector)?.len();
         let max = scfg.sector_bytes;
 
-        if len != u64::from(max) {
-            return Err(format_err!(
-                "import file (id = {:?}) contains {:?} bytes but must contain {:?}",
-                sector_id,
-                len,
-                max
-            ));
-        }
+        ensure!(
+            len == u64::from(max),
+            "import file (id = {:?}) contains {:?} bytes but must contain {:?}",
+            sector_id,
+            len,
+            max
+        );
 
         // generate checksum
         let blake2b_checksum = helpers::calculate_checksum(&sealed_sector)?
@@ -554,34 +547,22 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
 
         let access = mngr
             .convert_sector_id_to_access_name(sector_id)
-            .map_err(|err| {
-                format_err!(
-                    "sector id {:?} could not be xformed to access: {:?}",
-                    sector_id,
-                    err
-                )
-            })?;
+            .with_context(|| format!("sector id {:?} could not be xformed to access", sector_id))?;
 
         let new_sector_path = mngr.sealed_sector_path(&access);
         let new_cache_path = mngr.cache_path(&access);
 
-        let _ = std::fs::copy(&sealed_sector, &new_sector_path).map_err(|err| {
-            format_err!(
-                "import failed to copy sector (id = {:?}) from {:?} to {:?} (err = {:?})",
-                sector_id,
-                sealed_sector,
-                new_sector_path,
-                err
+        let _ = std::fs::copy(&sealed_sector, &new_sector_path).with_context(|| {
+            format!(
+                "import failed to copy sector (id = {:?}) from {:?} to {:?}",
+                sector_id, sealed_sector, new_sector_path,
             )
         })?;
 
-        std::fs::rename(&sector_cache_dir, &new_cache_path).map_err(|err| {
-            format_err!(
-                "import failed to move sector cache path (id = {:?}) from {:?} to {:?} (err = {:?})",
-                sector_id,
-                sector_cache_dir,
-                new_cache_path,
-                err
+        std::fs::rename(&sector_cache_dir, &new_cache_path).with_context(|| {
+            format!(
+                "import failed to move sector cache path (id = {:?}) from {:?} to {:?})",
+                sector_id, sector_cache_dir, new_cache_path,
             )
         })?;
 
@@ -636,12 +617,13 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                 Ok(output) => {
                     let SealPreCommitOutput { comm_r, comm_d } = output;
 
-                    let meta = staged_state.sectors.get_mut(&sector_id).ok_or_else(|| {
-                        format_err!("missing staged sector with id {}", &sector_id)
-                    })?;
+                    let meta = staged_state
+                        .sectors
+                        .get_mut(&sector_id)
+                        .context_with(|| format!("missing staged sector with id {}", &sector_id))?;
 
-                    let ticket = meta.seal_status.ticket().ok_or_else(|| {
-                        format_err!("failed to get ticket for sector with id {}", sector_id)
+                    let ticket = meta.seal_status.ticket().context_with(|| {
+                        format!("failed to get ticket for sector with id {}", sector_id)
                     })?;
 
                     meta.seal_status = SealStatus::PreCommitted(
@@ -652,10 +634,10 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                     Ok(meta.clone())
                 }
                 Err(err) => {
-                    let staged_sector =
-                        staged_state.sectors.get_mut(&sector_id).ok_or_else(|| {
-                            format_err!("missing staged sector with id {}", &sector_id)
-                        })?;
+                    let staged_sector = staged_state
+                        .sectors
+                        .get_mut(&sector_id)
+                        .context_with(|| format!("missing staged sector with id {}", &sector_id))?;
 
                     staged_sector.seal_status =
                         SealStatus::Failed(format!("seal_pre_commit failed: {:?}", err));
@@ -698,23 +680,23 @@ impl<T: KeyValueStore> SectorMetadataManager<T> {
                         .sealed_sector_path(&sector_access);
 
                     let staged_sector =
-                        self.state.staged.sectors.get(&sector_id).ok_or_else(|| {
-                            format_err!("missing staged sector with id {}", &sector_id)
+                        self.state.staged.sectors.get(&sector_id).context_with(|| {
+                            format!("missing staged sector with id {}", &sector_id)
                         })?;
 
-                    let seed = staged_sector.seal_status.seed().ok_or_else(|| {
-                        format_err!("failed to get seed for sector with id {}", sector_id)
+                    let seed = staged_sector.seal_status.seed().context_with(|| {
+                        format!("failed to get seed for sector with id {}", sector_id)
                     })?;
 
-                    let ticket = staged_sector.seal_status.ticket().ok_or_else(|| {
-                        format_err!("failed to get ticket for sector with id {}", sector_id)
+                    let ticket = staged_sector.seal_status.ticket().context_with(|| {
+                        format!("failed to get ticket for sector with id {}", sector_id)
                     })?;
 
                     let pre_commit = staged_sector
                         .seal_status
                         .persistable_pre_commit_output()
-                        .ok_or_else(|| {
-                            format_err!(
+                        .context_with(|| {
+                            format!(
                                 "failed to get persistable pre-commit output for sector with id {}",
                                 sector_id
                             )

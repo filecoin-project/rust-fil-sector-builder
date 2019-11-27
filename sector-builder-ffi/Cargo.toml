@@ -9,6 +9,9 @@ readme = "README.md"
 edition = "2018"
 publish = false
 
+[badges]
+maintenance = { status = "deprecated" }
+
 [lib]
 # cdylib is required by the FFI example/test
 crate-type = ["rlib", "cdylib", "staticlib"]

@@ -13,7 +13,7 @@ publish = false
 maintenance = { status = "deprecated" }
 
 [dependencies]
-bitvec = "0.11"
+bitvec = "0.17"
 failure = "0.1.5"
 itertools = "0.8"
 rand = "0.4"
